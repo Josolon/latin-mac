@@ -24,6 +24,35 @@ SYN_DB_PATH = 'data/synonyms.db'
 OUTPUT_XML_PATH = 'src/LatinDictionary.xml'
 
 ROMAN_NUM_RE = re.compile(r'^[IVX]+\.?$')
+ROMAN_VALUES = {'I': 1, 'V': 5, 'X': 10}
+
+
+def roman_to_int(s):
+    s = s.rstrip('.').upper()
+    total = 0
+    prev = 0
+    for ch in reversed(s):
+        v = ROMAN_VALUES.get(ch, 0)
+        total += -v if v < prev else v
+        prev = max(prev, v)
+    return total
+
+
+def label_ordinal(n):
+    """Best-effort ordinal for a TEI sense n-value, used only to detect when
+    a lettered/numbered cycle restarts (A..E, then A again) - not to sort."""
+    n = n.strip().rstrip('.')
+    if not n:
+        return None
+    if ROMAN_NUM_RE.match(n):
+        return roman_to_int(n)
+    if re.match(r'^[a-z]$', n):
+        return ord(n) - ord('a')
+    if re.match(r'^[A-Z]$', n):
+        return ord(n) - ord('A')
+    if n.isdigit():
+        return int(n)
+    return None
 
 # ---------------------------------------------------------------------------
 # Text utilities
@@ -164,6 +193,14 @@ def render_entry_body(entry_el):
             f'{html.escape(b)}</span>' for n, b in overview)
         parts.append(f'<div class="sense-overview">{items}</div>')
 
+    # Lewis & Short frequently mid-sense introduces a derived headword (e.g.
+    # "—Hence, amans, antis, P. a., ...") whose own senses then reuse A, B,
+    # C... at the same TEI level as the group they trail. There's no source
+    # markup distinguishing the two A-Z cycles, so detect the restart myself:
+    # when a label's ordinal drops back down (E, then A) at a depth already
+    # in progress, a new lettered group has begun - flag it with a divider.
+    last_ordinal_by_depth = {}
+
     for s in senses:
         try:
             depth = max(0, int(s.attrib.get('level', '1')) - 1)
@@ -175,10 +212,25 @@ def render_entry_body(entry_el):
         body = render_inline(s, skip_senses=True)
         if not (n or body):
             continue
+
         major = ' sense-major' if depth == 0 and n and ROMAN_NUM_RE.match(n) else ''
+
+        restart = ''
+        if depth >= 1 and n:
+            ordv = label_ordinal(n)
+            if ordv is not None:
+                prev = last_ordinal_by_depth.get(depth)
+                if prev is not None and ordv <= prev:
+                    restart = ' sense-group-restart'
+                last_ordinal_by_depth[depth] = ordv
+                # A restarted group invalidates tracking for any deeper level
+                for d in list(last_ordinal_by_depth):
+                    if d > depth:
+                        del last_ordinal_by_depth[d]
+
         num_html = f'<span class="sense-num">{html.escape(n)}</span> ' if n else ''
         parts.append(
-            f'<div class="sense sense-depth-{min(depth, 4)}{major}">'
+            f'<div class="sense sense-depth-{min(depth, 4)}{major}{restart}">'
             f'{num_html}<span class="sense-body">{body}</span></div>')
 
     return ''.join(parts)
