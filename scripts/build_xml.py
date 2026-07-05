@@ -416,8 +416,10 @@ def classify_and_grid(rows):
     form_analyses = drop_enclitic_variants(form_analyses)
 
     noun_grid = defaultdict(lambda: defaultdict(set))
-    verb_parts = defaultdict(set)   # (tense, voice) -> 1st sg ind forms
-    infinitives = defaultdict(set)  # (tense, voice) -> forms
+    verb_parts = defaultdict(set)     # (tense, voice) -> 1st sg ind forms
+    infinitives = defaultdict(set)    # (tense, voice) -> forms
+    participles = defaultdict(set)    # (tense, voice) -> masc nom sg forms
+    supines = set()
     n_nominal = n_verbal = 0
 
     for form, groups in form_analyses.items():
@@ -432,11 +434,22 @@ def classify_and_grid(rows):
             tense = next((t for t in TENSES if t in tokset), None)
             voice = 'act' if 'act' in tokset else ('pass' if 'pass' in tokset else None)
 
+            if 'part' in tokset:
+                p_tense = next((t for t in ('pres', 'perf', 'fut') if t in tokset), None)
+                p_voice = 'pass' if 'pass' in tokset else 'act'
+                is_masc = 'masc' in tokset or any('masc' in t.split('/') for t in toks if '/' in t)
+                is_nom = 'nom' in tokset or any('nom' in t.split('/') for t in toks if '/' in t)
+                if p_tense and is_masc and is_nom and number == 'sg':
+                    participles[(p_tense, p_voice)].add(form)
+                continue
+            if 'supine' in tokset:
+                supines.add(form)
+                continue
+
             if tense and 'inf' in tokset:
                 infinitives[(tense, voice or 'act')].add(form)
                 n_verbal += 1
-            elif tense and 'ind' in tokset and '1st' in tokset and number == 'sg' \
-                    and 'part' not in tokset:
+            elif tense and 'ind' in tokset and '1st' in tokset and number == 'sg':
                 verb_parts[(tense, voice or 'act')].add(form)
                 n_verbal += 1
             elif tense:
@@ -453,15 +466,55 @@ def classify_and_grid(rows):
                     noun_grid[case][number].add(form)
                     n_nominal += 1
 
-    return noun_grid, verb_parts, infinitives, n_nominal, n_verbal
+    return noun_grid, verb_parts, infinitives, participles, supines, n_nominal, n_verbal
 
 
-def render_morphology(rows):
-    noun_grid, verb_parts, infinitives, n_nominal, n_verbal = classify_and_grid(rows)
+def render_principal_parts(verb_parts, infinitives, participles, supines, is_deponent):
+    """The classic 4-part (3-part for deponents) citation form Latin is
+    taught with: amo, amare, amavi, amatus - or for deponents,
+    hortor, hortari, hortatus sum. Built from whichever of these forms the
+    Morpheus analyses actually attest; gracefully omits any that are
+    missing rather than guessing.
+    """
+    if is_deponent:
+        pres = join_forms(verb_parts.get(('pres', 'pass'), []))
+        inf = join_forms(infinitives.get(('pres', 'pass'), []))
+        perf_participle = join_forms(participles.get(('perf', 'pass'), []))
+        perf = f'{perf_participle} sum' if perf_participle else ''
+        forms = [pres, inf, perf]
+    else:
+        pres = join_forms(verb_parts.get(('pres', 'act'), []))
+        inf = join_forms(infinitives.get(('pres', 'act'), []))
+        perf = join_forms(verb_parts.get(('perf', 'act'), []))
+        # 4th part: perfect passive participle: the standard citation form for
+        # transitive verbs. Intransitive verbs (no PPP) cite the future active
+        # participle instead (e.g. cursurus), the conventional substitute.
+        fourth = join_forms(participles.get(('perf', 'pass'), [])) or \
+            join_forms(participles.get(('fut', 'act'), []))
+        forms = [pres, inf, perf, fourth]
+
+    if sum(1 for f in forms if f) < 2:
+        return ''  # too little attested to be a useful citation
+
+    forms_html = ', '.join(f'<b class="la-word">{html.escape(f)}</b>' if f
+                           else '<span class="pp-missing">—</span>' for f in forms)
+    label = 'Principal Parts (deponent)' if is_deponent else 'Principal Parts'
+    return (f'<div class="principal-parts">'
+            f'<span class="pp-label">{html.escape(label)}</span> '
+            f'<span class="pp-forms">{forms_html}</span></div>')
+
+
+def render_morphology(rows, is_deponent=False):
+    noun_grid, verb_parts, infinitives, participles, supines, n_nominal, n_verbal = \
+        classify_and_grid(rows)
     parts = []
 
     if n_verbal > n_nominal and verb_parts:
+        pp_html = render_principal_parts(verb_parts, infinitives, participles,
+                                         supines, is_deponent)
         parts.append('<div class="morph-section">')
+        if pp_html:
+            parts.append(pp_html)
         parts.append('<p class="section-label">Morphology — Indicative (1st sg.) &amp; Infinitives</p>')
         parts.append('<table class="morphology-table">')
         parts.append('<tr><th>Tense</th><th>Active</th><th>Passive</th></tr>')
@@ -559,6 +612,7 @@ def build():
 
             # ---- L&S body
             domain_badges = []
+            is_deponent = False
             try:
                 entry_el = ET.fromstring(fragment)
                 body_html = render_entry_body(entry_el)
@@ -569,6 +623,10 @@ def build():
                         if label and label not in seen_badges:
                             seen_badges.add(label)
                             domain_badges.append(label)
+                for pos_el in entry_el.iter():
+                    if pos_el.tag.split('}')[-1] == 'pos':
+                        is_deponent = 'dep' in clean_text(''.join(pos_el.itertext())).lower()
+                        break
             except ET.ParseError:
                 n_parse_fail += 1
                 text = clean_text(re.sub(r'<[^>]+>', ' ', fragment))
@@ -604,7 +662,7 @@ def build():
                 n_syn += 1
                 out.write(f'        {render_synonyms(syn_articles, spinelli_syns)}\n')
             if morph_rows:
-                morph_html = render_morphology(morph_rows)
+                morph_html = render_morphology(morph_rows, is_deponent=is_deponent)
                 if morph_html:
                     n_morph += 1
                     out.write(f'        {morph_html}\n')

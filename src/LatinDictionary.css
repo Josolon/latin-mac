@@ -292,6 +292,30 @@ div.morph-section p.section-label {
     border-bottom: 1px dashed #dde6f8;
 }
 
+/* --- Principal Parts callout (amo, amare, amavi, amatus) --- */
+div.principal-parts {
+    padding: 8px 10px;
+    background-color: #edf1fb;
+    border-bottom: 1px solid #c8d4ee;
+}
+
+span.pp-label {
+    font-size: 0.78em;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: #2a4a9a;
+    margin-right: 6px;
+}
+
+span.pp-forms {
+    font-size: 1.02em;
+}
+
+span.pp-missing {
+    color: #999;
+}
+
 /* --- Morphology Table --- */
 .morphology-table {
     width: 100%;
