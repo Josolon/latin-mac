@@ -103,16 +103,31 @@ def sanitize_key(text):
 # Lewis & Short entry rendering
 # ---------------------------------------------------------------------------
 
-def render_inline(node, skip_senses=True):
-    """Flatten a TEI node's mixed content into styled HTML (no nested senses)."""
-    frags = []
+def node_segments(node):
+    """Flatten a node's mixed content into an ordered list of
+    ('text', str) / ('elem', child) segments - tails become their own
+    'text' segments, decoupled from the element they trail. This lets a
+    segment list be split and re-rendered as two independent fragments."""
+    segments = []
     if node.text:
-        frags.append(html.escape(clean_text(node.text)))
+        segments.append(('text', node.text))
     for child in node:
+        segments.append(('elem', child))
+        if child.tail:
+            segments.append(('text', child.tail))
+    return segments
+
+
+def render_segments(segments, skip_senses=True):
+    """Render a list of node_segments()-style segments to styled HTML."""
+    frags = []
+    for kind, val in segments:
+        if kind == 'text':
+            frags.append(html.escape(clean_text(val)))
+            continue
+        child = val
         tag = child.tag.split('}')[-1]
         if skip_senses and tag == 'sense':
-            if child.tail:
-                frags.append(html.escape(clean_text(child.tail)))
             continue
         text = clean_text(''.join(child.itertext()))
         if tag in ('orth',):
@@ -140,10 +155,41 @@ def render_inline(node, skip_senses=True):
             pass
         else:
             frags.append(html.escape(text))
-        if child.tail:
-            frags.append(html.escape(clean_text(child.tail)))
     out = ' '.join(f for f in frags if f)
     return re.sub(r'\s+([,;:.])', r'\1', re.sub(r'\s+', ' ', out)).strip()
+
+
+def render_inline(node, skip_senses=True):
+    """Flatten a TEI node's mixed content into styled HTML (no nested senses)."""
+    return render_segments(node_segments(node), skip_senses=skip_senses)
+
+
+HENCE_SPLIT_RE = re.compile(r'Hence,')
+
+
+def split_at_hence(sense_el):
+    """Detect L&S's run-in-derived-headword transition ('...—Hence, ămans,
+    antis, P. a., ...') inside a sense's own content, and split the sense's
+    segments there. Returns (before_segments, after_segments) if found
+    (after_segments starts at 'Hence,'), else None.
+    """
+    segments = node_segments(sense_el)
+    for i, (kind, val) in enumerate(segments):
+        if kind != 'text':
+            continue
+        m = HENCE_SPLIT_RE.search(val)
+        if not m:
+            continue
+        if i + 1 >= len(segments) or segments[i + 1][0] != 'elem':
+            continue
+        if segments[i + 1][1].tag.split('}')[-1] != 'orth':
+            continue
+        before_text = val[:m.start()]
+        after_text = val[m.start():]
+        before = segments[:i] + ([('text', before_text)] if before_text.strip() else [])
+        after = [('text', after_text)] + segments[i + 1:]
+        return before, after
+    return None
 
 
 def brief_text(node, max_chars=150):
@@ -207,8 +253,9 @@ def render_entry_body(entry_el):
     # C... at the same TEI level as the group they trail. There's no source
     # markup distinguishing the two A-Z cycles, so detect the restart myself:
     # when a label's ordinal drops back down (E, then A) at a depth already
-    # in progress, a new lettered group has begun - flag it with a divider.
+    # in progress, a new lettered group has begun.
     last_ordinal_by_depth = {}
+    records = []
 
     for s in senses:
         try:
@@ -222,25 +269,53 @@ def render_entry_body(entry_el):
         if not (n or body):
             continue
 
-        major = ' sense-major' if depth == 0 and n and ROMAN_NUM_RE.match(n) else ''
+        major = depth == 0 and bool(n) and bool(ROMAN_NUM_RE.match(n))
 
-        restart = ''
+        restart = False
         if depth >= 1 and n:
             ordv = label_ordinal(n)
             if ordv is not None:
                 prev = last_ordinal_by_depth.get(depth)
                 if prev is not None and ordv <= prev:
-                    restart = ' sense-group-restart'
+                    restart = True
                 last_ordinal_by_depth[depth] = ordv
                 # A restarted group invalidates tracking for any deeper level
                 for d in list(last_ordinal_by_depth):
                     if d > depth:
                         del last_ordinal_by_depth[d]
 
+        records.append({'s': s, 'n': n, 'depth': depth, 'major': major,
+                         'body': body, 'restart': restart})
+
+    # Prefer splitting the *preceding* sense right at its "Hence," transition -
+    # the precise point L&S actually introduces the derived word - over
+    # marking the following restarted sense. Falls back to marking the
+    # follower when no such transition is found (e.g. a restart not caused
+    # by a "Hence, <newword>" pattern).
+    for i, rec in enumerate(records):
+        depth, n, major, body = rec['depth'], rec['n'], rec['major'], rec['body']
+        major_class = ' sense-major' if major else ''
         num_html = f'<span class="sense-num">{html.escape(n)}</span> ' if n else ''
-        parts.append(
-            f'<div class="sense sense-depth-{min(depth, 4)}{major}{restart}">'
-            f'{num_html}<span class="sense-body">{body}</span></div>')
+
+        next_restarts = (i + 1 < len(records)) and records[i + 1]['restart']
+        split = split_at_hence(rec['s']) if next_restarts else None
+
+        if split is not None:
+            before_segs, after_segs = split
+            before_body = render_segments(before_segs, skip_senses=True)
+            after_body = render_segments(after_segs, skip_senses=True)
+            parts.append(
+                f'<div class="sense sense-depth-{min(depth, 4)}{major_class}">'
+                f'{num_html}<span class="sense-body">{before_body}</span></div>')
+            parts.append(
+                f'<div class="sense sense-depth-{min(depth, 4)} sense-group-restart">'
+                f'<span class="sense-body">{after_body}</span></div>')
+            records[i + 1]['restart'] = False  # handled here, not on the follower
+        else:
+            restart_class = ' sense-group-restart' if rec['restart'] else ''
+            parts.append(
+                f'<div class="sense sense-depth-{min(depth, 4)}{major_class}{restart_class}">'
+                f'{num_html}<span class="sense-body">{body}</span></div>')
 
     return ''.join(parts)
 
