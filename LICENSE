@@ -73,6 +73,19 @@ The dataset is included in this repository at
 
 ---
 
+## Allen & Greenough grammar data (Creative Commons Attribution-ShareAlike 4.0)
+
+*Allen and Greenough's New Latin Grammar for Schools and Colleges* (ed.
+Greenough, Kittredge, Howard, D'Ooge; Ginn & Company, 1903) is used here in
+its original Perseus Digital Library TEI-XML digitization (not the later
+Dickinson College Commentaries / Alpheios revision, which is CC BY-NC-SA and
+therefore not redistributable in a commercial-compatible bundle like this
+one). This Perseus edition is covered by the same CC BY-SA 4.0 terms and
+Perseus attribution requirement as the Lewis & Short data above:
+https://github.com/PerseusDL/canonical-pdlrefwk
+
+---
+
 ## Summary
 
 When distributing this dictionary:

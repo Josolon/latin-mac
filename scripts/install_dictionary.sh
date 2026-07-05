@@ -25,12 +25,13 @@ if [[ ! -x "${DDK_BIN}" ]]; then
   exit 1
 fi
 
-echo "[3/5] Checking source data (see README.md, Step 1, for download instructions)"
+echo "[3/6] Checking source data (see README.md, Step 1, for download instructions)"
 missing=0
 for f in \
   "data/lewis_short/lat.ls.perseus-eng2.xml" \
   "data/analyses/latin-lemmata.txt" \
-  "data/ramshorn/ramshorn_1841_djvu.txt"; do
+  "data/ramshorn/ramshorn_1841_djvu.txt" \
+  "data/allen_greenough/ag_grammar.xml"; do
   if [[ ! -f "${REPO_ROOT}/${f}" ]]; then
     echo "  Missing ${f}"
     missing=1
@@ -41,12 +42,15 @@ if [[ "${missing}" -eq 1 ]]; then
   exit 1
 fi
 
-echo "[4/5] Building databases and dictionary XML"
+echo "[4/6] Building L&S/morphology/synonyms databases"
 cd "${REPO_ROOT}"
 python3 scripts/build_dbs.py
+
+echo "[5/6] Building grammar database and dictionary XML"
+python3 scripts/build_grammar.py
 python3 scripts/build_xml.py
 
-echo "[5/5] Compiling and installing the bundle"
+echo "[6/6] Compiling and installing the bundle"
 cd "${REPO_ROOT}/src"
 make install
 

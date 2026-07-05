@@ -13,12 +13,16 @@ env/
 data/ls.db
 data/morph.db
 data/synonyms.db
+data/grammar.db
 
 # Ignore the massive Perseus Lewis & Short TEI-XML source
 data/lewis_short/
 
 # Ignore the Diogenes-packaged Morpheus full-form analyses
 data/analyses/
+
+# Ignore the Perseus Allen & Greenough TEI-XML source
+data/allen_greenough/
 
 # Ignore the Morpheus engine checkout (cloned by scripts/, not committed)
 data/morpheus/

@@ -127,6 +127,15 @@ def render_inline(node, skip_senses=True):
             frags.append(f'<i>{html.escape(text)}</i>')
         elif tag in ('bibl', 'cit', 'quote'):
             frags.append(f'<span class="citation">{html.escape(text)}</span>')
+        elif tag == 'usg':
+            if child.attrib.get('type') == 'dom':
+                frags.append(f'<span class="usg-domain">{html.escape(text)}</span>')
+            else:
+                frags.append(f'<span class="usg-style">{html.escape(text)}</span>')
+        elif tag in ('case', 'mood', 'number'):
+            frags.append(f'<span class="gram-abbr">{html.escape(text)}</span>')
+        elif tag == 'lbl':
+            frags.append(f'<span class="gram-lbl">{html.escape(text)}</span>')
         elif tag in ('pb', 'cb'):
             pass
         else:
@@ -463,9 +472,17 @@ def build():
                 indices |= search_variants(form)
 
             # ---- L&S body
+            domain_badges = []
             try:
                 entry_el = ET.fromstring(fragment)
                 body_html = render_entry_body(entry_el)
+                seen_badges = set()
+                for usg in entry_el.iter():
+                    if usg.tag.split('}')[-1] == 'usg' and usg.attrib.get('type') == 'dom':
+                        label = clean_text(''.join(usg.itertext()))
+                        if label and label not in seen_badges:
+                            seen_badges.add(label)
+                            domain_badges.append(label)
             except ET.ParseError:
                 n_parse_fail += 1
                 text = clean_text(re.sub(r'<[^>]+>', ' ', fragment))
@@ -492,6 +509,10 @@ def build():
                 if kw:
                     out.write(f'        <d:index d:value="{html.escape(kw)}"/>\n')
             out.write(f'        <h1 class="entry-lemma">{html.escape(lemma_display)}</h1>\n')
+            if domain_badges:
+                badges = ''.join(f'<span class="domain-badge">{html.escape(b)}</span>'
+                                 for b in domain_badges)
+                out.write(f'        <div class="domain-badges">{badges}</div>\n')
             out.write(f'        <div class="definition">{body_html}</div>\n')
             if syn_articles or spinelli_syns:
                 n_syn += 1
@@ -506,10 +527,67 @@ def build():
             if n % 5000 == 0:
                 print(f'  {n}/{total} (syn: {n_syn}, morph: {n_morph})')
 
+        n_grammar = write_grammar_entries(out, n)
+
         out.write('</d:dictionary>\n')
 
     print(f'Done. {n} entries; {n_syn} with synonyms, {n_morph} with morphology, '
-          f'{n_parse_fail} XML-fallback.')
+          f'{n_parse_fail} XML-fallback; {n_grammar} grammar entries.')
+
+
+# ---------------------------------------------------------------------------
+# Grammar entries (Allen & Greenough, via scripts/build_grammar.py)
+# ---------------------------------------------------------------------------
+
+def write_grammar_entries(out, start_n):
+    grammar_db = 'data/grammar.db'
+    if not os.path.exists(grammar_db):
+        print('  (no data/grammar.db - skipping grammar entries; '
+              'run scripts/build_grammar.py first)')
+        return 0
+
+    conn = sqlite3.connect(grammar_db)
+    cur = conn.cursor()
+    n = start_n
+
+    cur.execute('SELECT title, level, html FROM sections ORDER BY order_idx')
+    for title, level, body_html in cur.fetchall():
+        n += 1
+        index_title = sanitize_key(strip_length_marks(title))
+        out.write(f'    <d:entry id="ag_sect_{n}" d:title="{html.escape(index_title)}">\n')
+        for kw in {index_title, index_title.lower(), title}:
+            kw = sanitize_key(kw)
+            if kw:
+                out.write(f'        <d:index d:value="{html.escape(kw)}"/>\n')
+        out.write(f'        <h1 class="entry-lemma ag-heading">{html.escape(title)}</h1>\n')
+        out.write(f'        <p class="ag-level-label">Allen &amp; Greenough’s New Latin '
+                  f'Grammar — {html.escape(level)}</p>\n')
+        out.write(f'        <div class="definition ag-section">{body_html}</div>\n')
+        out.write('    </d:entry>\n\n')
+
+    cur.execute('SELECT title, section_num, html FROM rules ORDER BY order_idx')
+    for title, sect_num, body_html in cur.fetchall():
+        n += 1
+        index_title = sanitize_key(strip_length_marks(title))
+        out.write(f'    <d:entry id="ag_rule_{n}" d:title="{html.escape(index_title)}">\n')
+        word_keys = {index_title, index_title.lower(), title}
+        for kw in word_keys:
+            kw = sanitize_key(kw)
+            if kw:
+                out.write(f'        <d:index d:value="{html.escape(kw)}"/>\n')
+        # citation-style keys ("AG 419", "§419") bypass sanitize_key, which
+        # would otherwise strip the leading "§" down to a bare, too-generic "419"
+        for kw in (f'AG {sect_num}', f'A&G {sect_num}', f'§{sect_num}'):
+            out.write(f'        <d:index d:value="{html.escape(kw)}"/>\n')
+        out.write(f'        <h1 class="entry-lemma ag-heading">{html.escape(title)}</h1>\n')
+        out.write(f'        <p class="ag-level-label">Allen &amp; Greenough §{html.escape(sect_num)}</p>\n')
+        out.write(f'        <div class="definition ag-section">{body_html}</div>\n')
+        out.write('    </d:entry>\n\n')
+
+    conn.close()
+    total = n - start_n
+    print(f'  grammar: {total} entries added (Allen & Greenough)')
+    return total
 
 
 if __name__ == '__main__':
