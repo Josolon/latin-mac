@@ -1,0 +1,269 @@
+/* LatinDictionary.css */
+
+body {
+    font-family: -apple-system, "Helvetica Neue", "Lucida Grande", sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    color: #1a1a1a;
+}
+
+/* --- Entry Heading --- */
+h1.entry-lemma {
+    font-family: "Noto Serif", Georgia, serif;
+    font-size: 1.6em;
+    font-weight: bold;
+    color: #3a1a1a;
+    margin: 0 0 6px 0;
+    padding-bottom: 4px;
+    border-bottom: 1px solid #dcc8c0;
+    letter-spacing: 0.02em;
+}
+
+/* --- Definition Block --- */
+div.definition {
+    margin: 6px 0 12px 0;
+    padding-left: 4px;
+}
+
+/* --- Sense Blocks --- */
+div.sense {
+    margin-top: 3px;
+    margin-bottom: 3px;
+    line-height: 1.55em;
+}
+
+/* Major senses (I, II, III…) get a prominent subheading look */
+div.sense-major {
+    margin-top: 10px;
+    margin-bottom: 2px;
+    padding-top: 5px;
+    border-top: 1px solid #e6d4cc;
+}
+
+div.sense-major .sense-num {
+    font-size: 1.05em;
+    font-weight: bold;
+    color: #6b0000;
+}
+
+div.sense-depth-0 {
+    margin-top: 5px;
+    padding-left: 0;
+}
+
+div.sense-depth-1 {
+    border-left: 2px solid #ecd4c8;
+    padding-left: 20px;
+    margin-top: 4px;
+}
+
+div.sense-depth-2 {
+    border-left: 2px solid #f4e4d8;
+    padding-left: 40px;
+    margin-top: 3px;
+}
+
+div.sense-depth-3 {
+    border-left: 1px solid #f8eee8;
+    padding-left: 60px;
+    margin-top: 2px;
+}
+
+div.sense-depth-4 {
+    border-left: 1px solid #f8eee8;
+    padding-left: 80px;
+    margin-top: 2px;
+}
+
+/* Sense numbering marker */
+span.sense-num {
+    font-weight: bold;
+    color: #8b1111;
+    font-size: 0.98em;
+    margin-right: 2px;
+}
+
+/* Inline sense content */
+span.sense-body {
+    color: #1a1a1a;
+}
+
+/* Latin word inline */
+b.la-word {
+    color: #4a1a00;
+    font-size: 1.04em;
+    font-family: "Noto Serif", Georgia, serif;
+}
+
+/* Principal parts / inflection type in the preamble */
+span.itype {
+    font-weight: 600;
+    color: #4a1a00;
+    font-style: normal;
+}
+
+/* Part of speech / gender markers */
+span.pos {
+    color: #555;
+    font-style: italic;
+}
+
+/* Embedded Greek and other non-Latin text */
+span.foreign {
+    font-family: "New Athena Unicode", "Noto Serif", Georgia, serif;
+    color: #002266;
+}
+
+/* Bibliographic citations */
+span.citation {
+    color: #666;
+    font-size: 0.9em;
+}
+
+/* --- Sense Overview --- */
+div.sense-overview {
+    margin: 6px 0 10px 0;
+    padding: 6px 10px;
+    background: #fbf5f0;
+    border: 1px solid #ecdcd0;
+    border-radius: 4px;
+    line-height: 1.9;
+    color: #333;
+    font-size: 0.92em;
+}
+
+span.overview-item {
+    display: inline;
+    margin-right: 10px;
+}
+
+/* --- Entry Preamble (principal parts, etymology) --- */
+div.entry-preamble {
+    margin: 2px 0 8px 0;
+    color: #444;
+    font-style: italic;
+    font-size: 0.95em;
+}
+
+/* --- Shared section label (Synonyms, Morphology) --- */
+p.section-label {
+    margin: 0;
+    padding: 5px 10px;
+    font-size: 0.86em;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+}
+
+/* --- Synonyms Section --- */
+div.syn-section {
+    margin-top: 14px;
+    background-color: #fdfaf3;
+    border: 1px solid #e6d8b8;
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+div.syn-section p.section-label {
+    color: #7a5a10;
+    background-color: #f7f0dd;
+    border-bottom: 1px solid #e6d8b8;
+}
+
+div.syn-article {
+    padding: 6px 10px;
+    border-bottom: 1px solid #f0e8d4;
+}
+
+div.syn-article:last-child {
+    border-bottom: none;
+}
+
+p.syn-headwords {
+    margin: 2px 0 4px 0;
+    font-weight: 600;
+    color: #4a1a00;
+    font-family: "Noto Serif", Georgia, serif;
+}
+
+span.syn-ref {
+    font-weight: normal;
+    font-style: italic;
+    font-size: 0.85em;
+    color: #999;
+}
+
+p.syn-body {
+    margin: 0 0 4px 0;
+    font-size: 0.92em;
+    line-height: 1.55;
+    color: #2a2a2a;
+}
+
+/* --- Morphology Section --- */
+div.morph-section {
+    margin-top: 14px;
+    background-color: #f7f9ff;
+    border: 1px solid #c8d4ee;
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+div.morph-section p.section-label {
+    color: #2a4a9a;
+    background-color: #edf1fb;
+    border-bottom: 1px solid #c8d4ee;
+}
+
+/* Secondary divider row (infinitives) */
+.morph-secondary-header td {
+    font-size: 0.82em;
+    font-style: italic;
+    color: #666;
+    padding: 3px 8px;
+    background-color: #f0f4fc;
+    border-top: 1px solid #dde6f8;
+    border-bottom: 1px dashed #dde6f8;
+}
+
+/* --- Morphology Table --- */
+.morphology-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.84em;
+    margin: 0;
+}
+
+.morphology-table th {
+    background-color: #e8edf8;
+    color: #2a3a6a;
+    font-weight: 600;
+    padding: 5px 8px;
+    text-align: left;
+    border-bottom: 1px solid #c8d4ee;
+}
+
+.morphology-table td {
+    padding: 4px 8px;
+    vertical-align: top;
+    border-bottom: 1px solid #eef0f8;
+    color: #1a1a1a;
+    font-family: "Noto Serif", Georgia, serif;
+}
+
+.morphology-table td.case-label {
+    font-family: -apple-system, "Helvetica Neue", sans-serif;
+    font-weight: 600;
+    color: #2a4a8a;
+    font-size: 0.95em;
+    white-space: nowrap;
+    width: 130px;
+}
+
+.morphology-table tr:last-child td {
+    border-bottom: none;
+}
+
+.morphology-table tr:nth-child(even) td {
+    background-color: #f7f9ff;
+}

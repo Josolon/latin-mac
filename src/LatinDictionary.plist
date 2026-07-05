@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>English</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.jonatansolon.dictionary.Latin</string>
+	<key>CFBundleName</key>
+	<string>Latin</string>
+	<key>CFBundleDisplayName</key>
+	<string>Latin (Lewis &amp; Short)</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0</string>
+	<key>DCSDictionaryCopyright</key>
+	<string>Lewis &amp; Short, A Latin Dictionary (1879): text provided under a CC BY-SA 4.0 license by Perseus Digital Library, http://www.perseus.tufts.edu, with funding from The National Endowment for the Humanities; data accessed from https://github.com/PerseusDL/lexica/. Morphology: Perseus/Morpheus via Diogenes. Synonyms: Ramshorn, Dictionary of Latin Synonymes, tr. Lieber (1841), public domain. Curated by Jónatan Sólon.</string>
+	<key>DCSDictionaryManufacturerName</key>
+	<string>Jónatan Sólon</string>
+	<key>DCSDictionaryFrontMatterWindowSize</key>
+	<string>0.5</string>
+</dict>
+</plist>
