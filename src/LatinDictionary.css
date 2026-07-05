@@ -200,6 +200,12 @@ p.syn-body {
     color: #2a2a2a;
 }
 
+/* Spinelli-Fenzi compact near-synonym list */
+p.syn-spinelli {
+    font-family: "Noto Serif", Georgia, serif;
+    color: #4a1a00;
+}
+
 /* --- Morphology Section --- */
 div.morph-section {
     margin-top: 14px;

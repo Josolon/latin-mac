@@ -3,17 +3,21 @@
   data/ls.db        <- data/lewis_short/lat.ls.perseus-eng2.xml  (Lewis & Short TEI-XML)
   data/morph.db     <- data/analyses/latin-lemmata.txt           (Morpheus full-form data via Diogenes)
   data/synonyms.db  <- data/ramshorn/ramshorn_1841_djvu.txt      (Ramshorn 1841, OCR)
+                       + data/spinelli/latin_near_synonyms.json  (Spinelli-Fenzi 2019, CC BY)
 
 Run from the repo root:  python3 scripts/build_dbs.py
 """
+import json
 import os
 import re
 import sqlite3
 import sys
+import unicodedata
 
 LS_XML_PATH = 'data/lewis_short/lat.ls.perseus-eng2.xml'
 LEMMATA_PATH = 'data/analyses/latin-lemmata.txt'
 RAMSHORN_PATH = 'data/ramshorn/ramshorn_1841_djvu.txt'
+SPINELLI_PATH = 'data/spinelli/latin_near_synonyms.json'
 
 LS_DB_PATH = 'data/ls.db'
 MORPH_DB_PATH = 'data/morph.db'
@@ -237,8 +241,50 @@ def build_synonyms():
     print(f'  done: {len(articles)} articles, {n_index} index refs -> {SYN_DB_PATH}')
 
 
+def norm_join_key(word):
+    """Normalize a Latin word for joining across sources: strip length marks,
+    lowercase, i-for-j, u-for-v, no spaces (res publica ~ respublica)."""
+    d = unicodedata.normalize('NFD', word)
+    d = ''.join(ch for ch in d if ord(ch) not in (0x0304, 0x0306))
+    d = unicodedata.normalize('NFC', d).lower()
+    return d.replace('j', 'i').replace('v', 'u').replace(' ', '')
+
+
+def build_spinelli():
+    """Spinelli-Fenzi near-synonyms (2019, CC BY) into synonyms.db."""
+    print('== Spinelli near-synonyms ==')
+    with open(SPINELLI_PATH, encoding='utf-8') as f:
+        data = json.load(f)
+
+    conn = sqlite3.connect(SYN_DB_PATH)
+    cur = conn.cursor()
+    cur.execute('DROP TABLE IF EXISTS spinelli')
+    cur.execute('''CREATE TABLE spinelli (
+        norm_key TEXT PRIMARY KEY, headword TEXT, synonyms TEXT)''')
+
+    for headword, syns in data.items():
+        # dedupe, drop the headword itself, keep source order
+        seen = set()
+        out = []
+        hw_norm = norm_join_key(headword)
+        for s in syns:
+            word = s.split('[')[0].strip()
+            key = (norm_join_key(word), s.strip())
+            if key in seen or norm_join_key(word) == hw_norm:
+                continue
+            seen.add(key)
+            out.append(s.strip())
+        cur.execute('INSERT OR REPLACE INTO spinelli VALUES (?,?,?)',
+                    (hw_norm, headword.strip(), json.dumps(out, ensure_ascii=False)))
+
+    conn.commit()
+    conn.close()
+    print(f'  done: {len(data)} headwords -> {SYN_DB_PATH} (table spinelli)')
+
+
 if __name__ == '__main__':
     os.chdir(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     build_ls()
     build_morph()
     build_synonyms()
+    build_spinelli()

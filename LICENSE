@@ -61,6 +61,18 @@ https://archive.org/details/ramshorn-lewis-dictionary-of-latin-synonymes-1841
 
 ---
 
+## Spinelli–Fenzi near-synonyms data (CC BY)
+
+Tommaso Spinelli & Giacomo Fenzi, *The First Online Dictionary of Latin
+Near-Synonyms* (University of St Andrews, 2019), is licensed under
+**Creative Commons Attribution** (CC BY).
+Dataset: https://doi.org/10.17630/3cf644e6-86b8-44d0-a50a-b33c7ca86072
+Source: https://github.com/tommasospinelli/Online-Dictionary-of-Latin-Near-Synonyms
+The dataset is included in this repository at
+`data/spinelli/latin_near_synonyms.json`.
+
+---
+
 ## Summary
 
 When distributing this dictionary:

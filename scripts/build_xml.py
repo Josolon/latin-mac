@@ -10,6 +10,7 @@ Each entry contains, in one always-visible scrollable page:
 Run from the repo root:  python3 scripts/build_xml.py
 """
 import html
+import json
 import os
 import re
 import sqlite3
@@ -54,6 +55,12 @@ def search_variants(word):
     variants.add(w.replace('v', 'u').replace('V', 'U'))
     variants.add(w.replace('j', 'i').replace('J', 'I').replace('v', 'u').replace('V', 'U'))
     return variants
+
+
+def norm_join_key(word):
+    """Same normalization as build_dbs.norm_join_key (join across sources)."""
+    w = strip_length_marks(word).lower()
+    return w.replace('j', 'i').replace('v', 'u').replace(' ', '').replace('-', '')
 
 
 def sanitize_key(text):
@@ -188,9 +195,15 @@ def styled_synonym_body(body, max_chars=2500):
     return html.escape(body)
 
 
-def render_synonyms(articles):
+def render_synonyms(articles, spinelli_syns=None):
     parts = ['<div class="syn-section">',
              '<p class="section-label">Synonyms &amp; Near-Synonyms</p>']
+    if spinelli_syns:
+        items = ', '.join(html.escape(s) for s in spinelli_syns)
+        parts.append('<div class="syn-article">')
+        parts.append(f'<p class="syn-body syn-spinelli">{items} '
+                     f'<span class="syn-ref">(Spinelli–Fenzi 2019)</span></p>')
+        parts.append('</div>')
     for num, headwords, body in articles:
         words = ', '.join(headwords.split(','))
         parts.append('<div class="syn-article">')
@@ -368,6 +381,13 @@ def build():
             syn_by_lemma[lemma.lower()].add(num)
     print(f'  synonym index resolved for {len(syn_by_lemma)} lookup keys')
 
+    # Spinelli-Fenzi near-synonyms, keyed by normalized headword
+    spinelli = {}
+    scur.execute('SELECT norm_key, synonyms FROM spinelli')
+    for norm_key, syns_json in scur.fetchall():
+        spinelli[norm_key] = json.loads(syns_json)
+    print(f'  Spinelli near-synonyms loaded for {len(spinelli)} headwords')
+
     n = n_syn = n_morph = n_parse_fail = 0
     with open(OUTPUT_XML_PATH, 'w', encoding='utf-8') as out:
         out.write('<?xml version="1.0" encoding="UTF-8"?>\n')
@@ -410,6 +430,8 @@ def build():
                 if row and row[0] not in seen_nums:
                     seen_nums.add(row[0])
                     syn_articles.append(row)
+            spinelli_syns = spinelli.get(norm_join_key(lemma_display)) or \
+                spinelli.get(norm_join_key(base_key))
 
             # ---- assemble
             out.write(f'    <d:entry id="ls_{n}" d:title="{html.escape(title)}">\n')
@@ -419,9 +441,9 @@ def build():
                     out.write(f'        <d:index d:value="{html.escape(kw)}"/>\n')
             out.write(f'        <h1 class="entry-lemma">{html.escape(lemma_display)}</h1>\n')
             out.write(f'        <div class="definition">{body_html}</div>\n')
-            if syn_articles:
+            if syn_articles or spinelli_syns:
                 n_syn += 1
-                out.write(f'        {render_synonyms(syn_articles)}\n')
+                out.write(f'        {render_synonyms(syn_articles, spinelli_syns)}\n')
             if morph_rows:
                 morph_html = render_morphology(morph_rows)
                 if morph_html:
