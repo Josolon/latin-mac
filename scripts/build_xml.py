@@ -271,6 +271,17 @@ def render_entry_body(entry_el):
 
         major = depth == 0 and bool(n) and bool(ROMAN_NUM_RE.match(n))
 
+        # A new top-level Roman-numeral division (depth 0) always starts its
+        # own fresh A/B/C sub-cycle underneath it - that's normal L&S
+        # structure, not a "Hence"-style anomaly, but it must still clear any
+        # leftover deeper-depth tracking from the *previous* numeral's
+        # letters, or numeral II's own first "A" looks like a spurious
+        # restart relative to numeral I's last letter.
+        if depth == 0 and n:
+            for d in list(last_ordinal_by_depth):
+                if d > depth:
+                    del last_ordinal_by_depth[d]
+
         restart = False
         if depth >= 1 and n:
             ordv = label_ordinal(n)
