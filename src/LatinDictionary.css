@@ -161,6 +161,13 @@ span.gram-lbl {
     color: #777;
 }
 
+/* Etymology, mined from L&S's <etym> tag - shown bracketed inline in the
+   preamble, like a print dictionary's [root/origin] note. */
+span.etym {
+    color: #6a5a3a;
+    font-style: italic;
+}
+
 /* Domain badges shown once, under the headword */
 div.domain-badges {
     margin: 2px 0 8px 0;

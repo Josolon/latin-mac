@@ -151,6 +151,8 @@ def render_segments(segments, skip_senses=True):
             frags.append(f'<span class="gram-abbr">{html.escape(text)}</span>')
         elif tag == 'lbl':
             frags.append(f'<span class="gram-lbl">{html.escape(text)}</span>')
+        elif tag == 'etym':
+            frags.append(f'<span class="etym">[{html.escape(text)}]</span>')
         elif tag in ('pb', 'cb'):
             pass
         else:
