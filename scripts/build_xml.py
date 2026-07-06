@@ -140,8 +140,20 @@ def render_segments(segments, skip_senses=True):
             frags.append(f'<span class="foreign">{html.escape(text)}</span>')
         elif tag in ('hi', 'title', 'author'):
             frags.append(f'<i>{html.escape(text)}</i>')
-        elif tag in ('bibl', 'cit', 'quote'):
-            frags.append(f'<span class="citation">{html.escape(text)}</span>')
+        elif tag == 'cit':
+            # A cit typically wraps <quote> (the Latin example), an optional
+            # <trans>/<tr> (its English gloss), and <bibl> (the reference) -
+            # recurse so each renders distinctly instead of one flattened blob.
+            frags.append(render_segments(node_segments(child), skip_senses=skip_senses))
+        elif tag == 'quote':
+            frags.append(f'<i class="cit-quote">{html.escape(text)}</i>')
+        elif tag == 'trans':
+            inner = render_segments(node_segments(child), skip_senses=skip_senses)
+            frags.append(f'<span class="cit-trans">‘{inner}’</span>')
+        elif tag == 'tr':
+            frags.append(html.escape(text))
+        elif tag == 'bibl':
+            frags.append(f'<span class="cit-bibl">{html.escape(text)}</span>')
         elif tag == 'usg':
             if child.attrib.get('type') == 'dom':
                 frags.append(f'<span class="usg-domain">{html.escape(text)}</span>')

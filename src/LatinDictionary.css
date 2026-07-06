@@ -123,8 +123,24 @@ span.foreign {
     color: #002266;
 }
 
-/* Bibliographic citations */
+/* Bibliographic citations (Allen & Greenough only - L&S uses the
+   cit-quote/cit-trans/cit-bibl split below) */
 span.citation {
+    color: #666;
+    font-size: 0.9em;
+}
+
+/* --- L&S quoted examples: Latin quote / English gloss / reference --- */
+i.cit-quote {
+    font-style: italic;
+    color: #1a1a1a;
+}
+
+span.cit-trans {
+    color: #3a3a3a;
+}
+
+span.cit-bibl {
     color: #666;
     font-size: 0.9em;
 }
