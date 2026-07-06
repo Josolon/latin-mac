@@ -49,6 +49,7 @@ python3 scripts/build_dbs.py
 echo "[5/6] Building grammar database and dictionary XML"
 python3 scripts/build_grammar.py
 python3 scripts/build_xml.py
+python3 scripts/test_dictionary.py
 
 echo "[6/6] Compiling and installing the bundle"
 cd "${REPO_ROOT}/src"

@@ -75,6 +75,7 @@ None of this is committed to the repo (see `.gitignore`):
 python3 scripts/build_dbs.py      # L&S / analyses / Ramshorn / Spinelli -> SQLite (ls.db, morph.db, synonyms.db)
 python3 scripts/build_grammar.py  # A&G TEI-XML -> data/grammar.db
 python3 scripts/build_xml.py      # SQLite -> src/LatinDictionary.xml (~106 MB)
+python3 scripts/test_dictionary.py  # regression checks (XML validity + known-entry assertions)
 ```
 
 ### Step 3 — Compile and install
@@ -107,6 +108,7 @@ latin-mac/
 │   ├── build_dbs.py           # L&S / analyses / Ramshorn / Spinelli -> SQLite
 │   ├── build_grammar.py       # A&G TEI-XML -> grammar.db
 │   ├── build_xml.py           # SQLite -> Apple Dictionary XML
+│   ├── test_dictionary.py     # Regression checks on the generated XML
 │   └── install_dictionary.sh  # One-command build & install
 ├── src/
 │   ├── LatinDictionary.xml    # Generated dictionary source [gitignored]
