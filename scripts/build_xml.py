@@ -165,6 +165,14 @@ def render_segments(segments, skip_senses=True):
             frags.append(f'<span class="gram-lbl">{html.escape(text)}</span>')
         elif tag == 'etym':
             frags.append(f'<span class="etym">[{html.escape(text)}]</span>')
+        elif tag == 'xr':
+            # Wraps a <lbl> ("v.", already styled) and a <ref> - almost
+            # always a symbolic print-navigation marker (supra/infra/the
+            # foll.) rather than a specific headword, so no hyperlink is
+            # attempted; just recurse so the lbl+ref render together, styled.
+            frags.append(render_segments(node_segments(child), skip_senses=skip_senses))
+        elif tag == 'ref':
+            frags.append(f'<span class="xr-ref">{html.escape(text)}</span>')
         elif tag in ('pb', 'cb'):
             pass
         else:
@@ -433,7 +441,10 @@ def classify_and_grid(rows):
     verb_parts = defaultdict(set)     # (tense, voice) -> 1st sg ind forms
     infinitives = defaultdict(set)    # (tense, voice) -> forms
     participles = defaultdict(set)    # (tense, voice) -> masc nom sg forms
+    subj_parts = defaultdict(set)     # (tense, voice) -> 1st sg subjunctive forms
+    imperatives = defaultdict(set)    # (tense, person, number) -> forms (voice-agnostic)
     supines = set()
+    gerundives = set()
     n_nominal = n_verbal = 0
 
     for form, groups in form_analyses.items():
@@ -459,12 +470,26 @@ def classify_and_grid(rows):
             if 'supine' in tokset:
                 supines.add(form)
                 continue
+            if 'gerundive' in tokset:
+                is_masc = 'masc' in tokset or any('masc' in t.split('/') for t in toks if '/' in t)
+                is_nom = 'nom' in tokset or any('nom' in t.split('/') for t in toks if '/' in t)
+                if is_masc and is_nom and number == 'sg':
+                    gerundives.add(form)
+                continue
 
             if tense and 'inf' in tokset:
                 infinitives[(tense, voice or 'act')].add(form)
                 n_verbal += 1
             elif tense and 'ind' in tokset and '1st' in tokset and number == 'sg':
                 verb_parts[(tense, voice or 'act')].add(form)
+                n_verbal += 1
+            elif tense and 'subj' in tokset and '1st' in tokset and number == 'sg':
+                subj_parts[(tense, voice or 'act')].add(form)
+                n_verbal += 1
+            elif tense and 'imperat' in tokset:
+                person = next((p for p in ('2nd', '3rd') if p in tokset), None)
+                if person and number:
+                    imperatives[(tense, person, number)].add(form)
                 n_verbal += 1
             elif tense:
                 n_verbal += 1
@@ -480,7 +505,8 @@ def classify_and_grid(rows):
                     noun_grid[case][number].add(form)
                     n_nominal += 1
 
-    return noun_grid, verb_parts, infinitives, participles, supines, n_nominal, n_verbal
+    return (noun_grid, verb_parts, infinitives, participles, subj_parts, imperatives,
+            supines, gerundives, n_nominal, n_verbal)
 
 
 def render_principal_parts(verb_parts, infinitives, participles, supines, is_deponent):
@@ -518,9 +544,45 @@ def render_principal_parts(verb_parts, infinitives, participles, supines, is_dep
             f'<span class="pp-forms">{forms_html}</span></div>')
 
 
+def render_subjunctive(subj_parts):
+    if not subj_parts:
+        return ''
+    rows = []
+    for tense in ('pres', 'imperf', 'perf', 'plup'):
+        act = join_forms(subj_parts.get((tense, 'act'), []))
+        pas = join_forms(subj_parts.get((tense, 'pass'), []))
+        if act or pas:
+            rows.append(f'<tr><td class="case-label">{TENSE_LABELS[tense]}</td>'
+                        f'<td>{html.escape(act) or "—"}</td><td>{html.escape(pas) or "—"}</td></tr>')
+    if not rows:
+        return ''
+    return ('<div class="morph-section">'
+            '<p class="section-label">Morphology — Subjunctive (1st sg.)</p>'
+            '<table class="morphology-table"><tr><th>Tense</th><th>Active</th><th>Passive</th></tr>'
+            + ''.join(rows) + '</table></div>')
+
+
+def render_imperative(imperatives):
+    if not imperatives:
+        return ''
+    rows = []
+    for tense, label in (('pres', 'Present'), ('fut', 'Future')):
+        sg = join_forms(imperatives.get((tense, '2nd', 'sg'), set()))
+        pl = join_forms(imperatives.get((tense, '2nd', 'pl'), set()))
+        if sg or pl:
+            rows.append(f'<tr><td class="case-label">{label}</td>'
+                        f'<td>{html.escape(sg) or "—"}</td><td>{html.escape(pl) or "—"}</td></tr>')
+    if not rows:
+        return ''
+    return ('<div class="morph-section">'
+            '<p class="section-label">Morphology — Imperative</p>'
+            '<table class="morphology-table"><tr><th>Tense</th><th>2nd Singular</th><th>2nd Plural</th></tr>'
+            + ''.join(rows) + '</table></div>')
+
+
 def render_morphology(rows, is_deponent=False):
-    noun_grid, verb_parts, infinitives, participles, supines, n_nominal, n_verbal = \
-        classify_and_grid(rows)
+    (noun_grid, verb_parts, infinitives, participles, subj_parts, imperatives,
+     supines, gerundives, n_nominal, n_verbal) = classify_and_grid(rows)
     parts = []
 
     if n_verbal > n_nominal and verb_parts:
@@ -550,7 +612,13 @@ def render_morphology(rows, is_deponent=False):
         if inf_rows:
             parts.append('<tr class="morph-secondary-header"><td colspan="3">Infinitives</td></tr>')
             parts.extend(inf_rows)
+        if gerundives:
+            parts.append('<tr class="morph-secondary-header"><td colspan="3">Gerundive</td></tr>')
+            parts.append(f'<tr><td class="case-label">masc. nom. sg.</td>'
+                        f'<td colspan="2">{html.escape(join_forms(gerundives))}</td></tr>')
         parts.append('</table></div>')
+        parts.append(render_subjunctive(subj_parts))
+        parts.append(render_imperative(imperatives))
     elif noun_grid:
         parts.append('<div class="morph-section">')
         parts.append('<p class="section-label">Morphology — Declension</p>')
@@ -686,11 +754,13 @@ def build():
                 print(f'  {n}/{total} (syn: {n_syn}, morph: {n_morph})')
 
         n_grammar = write_grammar_entries(out, n)
+        n_terms = write_termination_entries(out, n + n_grammar)
 
         out.write('</d:dictionary>\n')
 
     print(f'Done. {n} entries; {n_syn} with synonyms, {n_morph} with morphology, '
-          f'{n_parse_fail} XML-fallback; {n_grammar} grammar entries.')
+          f'{n_parse_fail} XML-fallback; {n_grammar} grammar entries; '
+          f'{n_terms} termination entries.')
 
 
 # ---------------------------------------------------------------------------
@@ -745,6 +815,41 @@ def write_grammar_entries(out, start_n):
     conn.close()
     total = n - start_n
     print(f'  grammar: {total} entries added (Allen & Greenough)')
+    return total
+
+
+def write_termination_entries(out, start_n):
+    if not os.path.exists(SYN_DB_PATH):
+        print('  (no synonyms.db - skipping Terminations entries)')
+        return 0
+
+    conn = sqlite3.connect(SYN_DB_PATH)
+    cur = conn.cursor()
+    try:
+        cur.execute('SELECT roman, category, body FROM terminations ORDER BY order_idx')
+        rows = cur.fetchall()
+    except sqlite3.OperationalError:
+        print('  (no terminations table - run scripts/build_dbs.py to regenerate)')
+        conn.close()
+        return 0
+
+    n = start_n
+    for roman, category, body in rows:
+        n += 1
+        title = f'Latin Terminations {roman}'
+        out.write(f'    <d:entry id="term_{n}" d:title="{html.escape(title)}">\n')
+        for kw in (title, f'Ramshorn {roman}', f'Terminations {roman}'):
+            out.write(f'        <d:index d:value="{html.escape(kw)}"/>\n')
+        out.write(f'        <h1 class="entry-lemma ag-heading">{html.escape(title)}</h1>\n')
+        out.write(f'        <p class="ag-level-label">Ramshorn, Dictionary of Latin '
+                  f'Synonymes (1841) — {html.escape(category)}</p>\n')
+        out.write(f'        <div class="definition ag-section"><p class="ag-p">'
+                  f'{html.escape(body)}</p></div>\n')
+        out.write('    </d:entry>\n\n')
+
+    conn.close()
+    total = n - start_n
+    print(f'  terminations: {total} entries added (Ramshorn front matter)')
     return total
 
 

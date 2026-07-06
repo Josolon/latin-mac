@@ -131,7 +131,7 @@ HEADWORD_TOKEN_RE = re.compile(r'^[A-Z][a-zA-Z]*$')
 INDEX_ENTRY_RE = re.compile(r'^(.+?)[\s,]+((?:[0-9IVXLC]+[.,]?\s*)+)\s*$')
 
 
-def _clean_body_lines(lines):
+def _clean_body_lines(lines, extra_noise_re=None):
     """Drop scanner noise / page furniture, then de-hyphenate OCR line breaks."""
     kept = []
     for ln in lines:
@@ -139,6 +139,8 @@ def _clean_body_lines(lines):
         if not s:
             continue
         if NOISE_RE.match(s) or RUNNING_HEAD_RE.match(s):
+            continue
+        if extra_noise_re and extra_noise_re.match(s):
             continue
         kept.append(s)
     text = '\n'.join(kept)
@@ -241,6 +243,103 @@ def build_synonyms():
     print(f'  done: {len(articles)} articles, {n_index} index refs -> {SYN_DB_PATH}')
 
 
+# --------------------------------------------------------------------------
+# 3b. Ramshorn's "Terminations" front matter (word-formation / suffix guide)
+# --------------------------------------------------------------------------
+
+# Running page heads here look like "Adjective Forms. XI." or
+# "Adjective Forms. VII. — VIII.", optionally trailed by a page number.
+TERM_RUNNING_HEAD_RE = re.compile(
+    r'^\s*[A-Za-z]+ Forms\s*\.?\s*[IVXLC]+\.?(\s*[-—]+\s*[IVXLC]+\.?)?\s*\d*\s*$')
+TERM_CATEGORY_RE = re.compile(r'^([A-E])\.\s+([A-Z][A-Za-z ]+?)\s*\.?\s*$')
+TERM_SECTION_RE = re.compile(r'^([IVXLC]+)\.\s+(.+)$')
+
+
+def build_terminations():
+    """Ramshorn's front matter (before 'LATIN SYNONYMES.') is a continuous,
+    monotonically Roman-numeral-numbered guide to Latin word-formation
+    suffixes (I. S ..., II. tas ..., ... up to XXIV.), grouped under a
+    handful of untitled major categories (A. Substantive Forms, B. Adjective
+    Forms, C. Forms of Verbs, D. Adverbial Forms, E. Reduplication). The
+    back-of-book index cites these as e.g. 'urbanus XI, 2.231.' - the 'XI'
+    here, distinct from the arabic synonym-article numbers already parsed
+    into `articles`.
+    """
+    print('== Ramshorn Terminations ==')
+    with open(RAMSHORN_PATH, encoding='utf-8') as f:
+        raw_lines = f.readlines()
+
+    start = end = None
+    for i, ln in enumerate(raw_lines):
+        if start is None and ln.strip() == 'A. Substantive Forms .':
+            start = i
+        if ln.strip() == 'LATIN SYNONYMES.':
+            end = i
+            break
+    if start is None or end is None:
+        print('  WARNING: could not locate Terminations boundaries - skipping')
+        return
+
+    lines = _clean_body_lines(raw_lines[start:end], extra_noise_re=TERM_RUNNING_HEAD_RE)
+
+    # Walk lines, tracking the current lettered category and splitting on
+    # Roman-numeral section starts. The print numbering only increases (it
+    # is not gap-free - e.g. it jumps straight from II to IV, skipping III
+    # entirely), so a strictly-increasing check - not an exact-sequence
+    # match - is what distinguishes a real header from stray OCR noise. The
+    # very first section (I) is never labeled at all in the source; its text
+    # is captured as a synthetic leading section instead.
+    conn = sqlite3.connect(SYN_DB_PATH)
+    cur = conn.cursor()
+    cur.execute('DROP TABLE IF EXISTS terminations')
+    cur.execute('''CREATE TABLE terminations (
+        order_idx INTEGER PRIMARY KEY, roman TEXT, category TEXT, title TEXT, body TEXT)''')
+
+    current_category = ''
+    sections = []          # (roman, category, [lines])
+    current = ('I', '', [])
+    last_value = 0
+    for ln in lines:
+        cm = TERM_CATEGORY_RE.match(ln)
+        if cm:
+            current_category = cm.group(2).strip()
+            if not current[2]:
+                current = (current[0], current_category, current[2])
+            continue
+        sm = TERM_SECTION_RE.match(ln)
+        if sm:
+            roman_value = roman_to_int(sm.group(1))
+            if roman_value > last_value:
+                if current[2]:
+                    sections.append(current)
+                current = (sm.group(1), current_category, [sm.group(2)])
+                last_value = roman_value
+                continue
+        current[2].append(ln)
+    if current[2]:
+        sections.append(current)
+
+    for i, (roman, category, body_lines) in enumerate(sections, start=1):
+        text = re.sub(r'\s+', ' ', ' '.join(body_lines)).strip()
+        title = text[:100].rsplit(' ', 1)[0] if len(text) > 100 else text
+        cur.execute('INSERT INTO terminations VALUES (?,?,?,?,?)',
+                    (i, roman, category, title, text))
+
+    conn.commit()
+    conn.close()
+    print(f'  done: {len(sections)} termination sections -> {SYN_DB_PATH} (table terminations)')
+
+
+def roman_to_int(s):
+    vals = {'I': 1, 'V': 5, 'X': 10, 'L': 50, 'C': 100}
+    total = prev = 0
+    for ch in reversed(s.upper()):
+        v = vals.get(ch, 0)
+        total += -v if v < prev else v
+        prev = max(prev, v)
+    return total
+
+
 def norm_join_key(word):
     """Normalize a Latin word for joining across sources: strip length marks,
     lowercase, i-for-j, u-for-v, no spaces (res publica ~ respublica)."""
@@ -287,4 +386,5 @@ if __name__ == '__main__':
     build_ls()
     build_morph()
     build_synonyms()
+    build_terminations()
     build_spinelli()

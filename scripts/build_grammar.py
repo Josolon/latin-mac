@@ -104,6 +104,12 @@ def render_node(node, current_sect):
         return f'<li>{body}</li>' if body else '', current_sect[0]
     if t == 'ref':
         return f'<span class="ag-ref">{body}</span>', current_sect[0]
+    if t == 'table':
+        return f'<table class="ag-table">{body}</table>' if body else '', current_sect[0]
+    if t == 'row':
+        return f'<tr>{body}</tr>', current_sect[0]
+    if t == 'cell':
+        return f'<td>{body}</td>', current_sect[0]
     if t == 'head':
         return '', current_sect[0]  # heads are consumed as titles, not body
     return body, current_sect[0]

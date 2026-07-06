@@ -184,6 +184,12 @@ span.etym {
     font-style: italic;
 }
 
+/* Cross-reference markers, e.g. "v. supra/infra" */
+span.xr-ref {
+    font-style: italic;
+    color: #777;
+}
+
 /* Domain badges shown once, under the headword */
 div.domain-badges {
     margin: 2px 0 8px 0;
@@ -436,4 +442,21 @@ span.ag-sect-num {
     border-radius: 3px;
     padding: 0 4px;
     margin-right: 3px;
+}
+
+table.ag-table {
+    border-collapse: collapse;
+    margin: 8px 0;
+    font-size: 0.92em;
+}
+
+table.ag-table td {
+    padding: 3px 10px;
+    border: 1px solid #d8e4d8;
+    vertical-align: top;
+}
+
+table.ag-table tr:first-child td {
+    font-weight: 600;
+    background-color: #eaf3ea;
 }
