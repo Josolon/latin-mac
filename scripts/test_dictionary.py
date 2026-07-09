@@ -46,6 +46,13 @@ def main():
     n_entries = content.count('<d:entry ')
     check(f'at least 51000 d:entry elements (found {n_entries})', n_entries >= 51000)
 
+    print('== Diacritic-spelling search (bŏnus as well as bonus) ==')
+    bonus_check = entry_by_title(content, 'bonus')
+    check('bonus entry is indexed under its plain spelling',
+          bonus_check and 'd:index d:value="bonus"' in bonus_check)
+    check('bonus entry is ALSO indexed under its macron/breve spelling (bŏnus)',
+          bonus_check and 'd:index d:value="bŏnus"' in bonus_check)
+
     print('== amo (regular verb: principal parts, subjunctive, imperative, gerundive) ==')
     amo = entry_by_title(content, 'amo')
     check('amo entry exists', amo is not None)

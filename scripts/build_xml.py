@@ -75,14 +75,23 @@ def strip_length_marks(text):
 
 
 def search_variants(word):
-    """All lookup spellings for a Latin word: plain, i-for-j, u-for-v, both."""
-    w = strip_length_marks(word).replace('-', '')
-    if not w:
+    """All lookup spellings for a Latin word: the macron/breve spelling as
+    written (bŏnus) plus the plain form (bonus), each crossed with i-for-j,
+    u-for-v, both. Most callers pass Morpheus's plain ASCII forms, where
+    stripping is a no-op and this just contributes the one plain spelling;
+    it matters for L&S's own lemma_display, which is written with length
+    marks that a user typing/pasting the diacritic spelling needs indexed
+    too - the marks-stripped form alone doesn't match the marked one."""
+    accented = (word or '').replace('-', '')
+    plain = strip_length_marks(word).replace('-', '')
+    if not plain and not accented:
         return set()
-    variants = {w}
-    variants.add(w.replace('j', 'i').replace('J', 'I'))
-    variants.add(w.replace('v', 'u').replace('V', 'U'))
-    variants.add(w.replace('j', 'i').replace('J', 'I').replace('v', 'u').replace('V', 'U'))
+    variants = {plain, accented}
+    for base in (plain, accented):
+        variants.add(base.replace('j', 'i').replace('J', 'I'))
+        variants.add(base.replace('v', 'u').replace('V', 'U'))
+        variants.add(base.replace('j', 'i').replace('J', 'I').replace('v', 'u').replace('V', 'U'))
+    variants.discard('')
     return variants
 
 
