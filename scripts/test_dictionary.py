@@ -85,7 +85,7 @@ def main():
     print('== Synonyms (Ramshorn + Spinelli + Doederlein) ==')
     check('amo has a synonyms section', amo and 'class="syn-section"' in amo)
     check('amo cites Ramshorn (§66)', amo and 'Ramshorn §66' in amo)
-    check('amo cites Doederlein (§145)', amo and 'Döderlein §145' in amo)
+    check('amo cites Doederlein', amo and '(Döderlein)' in amo)
     iubeo = entry_by_title(content, 'jubeo')
     check('jubeo has a Spinelli near-synonym list (via iubeo, i/j-normalized)',
           iubeo and 'syn-spinelli' in iubeo)

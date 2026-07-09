@@ -376,8 +376,13 @@ def render_synonyms(articles, spinelli_syns=None, doederlein_articles=None):
     for num, headwords, body in (doederlein_articles or []):
         words = ', '.join(headwords.split(','))
         parts.append('<div class="syn-article">')
+        # No section number in the citation: unlike Ramshorn/A&G, Doederlein's
+        # original has no printed article numbers - "num" here is just our
+        # own parse-order index, which isn't stable across re-downloads of
+        # the source (Gutenberg silently revises its transcriptions), so
+        # presenting it as if it were a citable locator would be misleading.
         parts.append(f'<p class="syn-headwords">{html.escape(words)} '
-                     f'<span class="syn-ref">(Döderlein §{num})</span></p>')
+                     f'<span class="syn-ref">(Döderlein)</span></p>')
         parts.append(f'<p class="syn-body">{styled_synonym_body(body)}</p>')
         parts.append('</div>')
     for num, headwords, body in articles:
