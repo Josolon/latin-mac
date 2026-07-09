@@ -18,6 +18,7 @@ LS_XML_PATH = 'data/lewis_short/lat.ls.perseus-eng2.xml'
 LEMMATA_PATH = 'data/analyses/latin-lemmata.txt'
 RAMSHORN_PATH = 'data/ramshorn/ramshorn_1841_djvu.txt'
 SPINELLI_PATH = 'data/spinelli/latin_near_synonyms.json'
+DOEDERLEIN_PATH = 'data/doederlein/doederlein_gutenberg.txt'
 
 LS_DB_PATH = 'data/ls.db'
 MORPH_DB_PATH = 'data/morph.db'
@@ -340,6 +341,78 @@ def roman_to_int(s):
     return total
 
 
+# --------------------------------------------------------------------------
+# 3c. Doederlein's Hand-book of Latin Synonymes (1875 tr., Project Gutenberg)
+# --------------------------------------------------------------------------
+
+# A headword line looks like "ABESSE; DEESSE; DEFICERE. 1. +Abesse+ denotes..."
+# - one or more ALL-CAPS Latin headwords, semicolon/comma-separated, ending
+# in a period right before the numbered discussion begins on the same line.
+DOED_ARTICLE_RE = re.compile(
+    r'^([A-ZÆŒ][A-ZÆŒ]+(?:[;,]\s+[A-ZÆŒ][A-ZÆŒ \'.]+)*)\.\s', re.MULTILINE)
+# Cross-reference stubs: "ABDERE, see _Celare_." - redirect to another article
+# rather than a discussion of its own.
+DOED_XREF_RE = re.compile(r'^([A-ZÆŒ][A-ZÆŒ]+), see _([A-Za-z]+)_\.\s*$', re.MULTILINE)
+
+
+def _clean_doederlein_text(text):
+    """Convert Gutenberg's plain-text emphasis markup to readable prose."""
+    text = re.sub(r'\+([^+]+)\+', r'\1', text)     # +word+ (bold/spaced) -> word
+    text = re.sub(r'_([^_]+)_', r'\1', text)        # _word_ (italic) -> word
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
+
+
+def build_doederlein():
+    """Döderlein's headword lines double as their own index - no back-of-book
+    index parsing needed, unlike Ramshorn."""
+    print("== Döderlein's Hand-book of Latin Synonymes ==")
+    with open(DOEDERLEIN_PATH, encoding='utf-8') as f:
+        content = f.read()
+
+    start_m = re.search(r'\n\nA\.\n\n', content)
+    end_idx = content.find('INDEX OF GREEK WORDS.')
+    if not start_m or end_idx < 0:
+        print('  WARNING: could not locate Doederlein body boundaries - skipping')
+        return
+    body = content[start_m.end():end_idx]
+
+    matches = list(DOED_ARTICLE_RE.finditer(body))
+    conn = sqlite3.connect(SYN_DB_PATH)
+    cur = conn.cursor()
+    cur.execute('DROP TABLE IF EXISTS doederlein')
+    cur.execute('DROP TABLE IF EXISTS doederlein_index')
+    cur.execute('''CREATE TABLE doederlein (
+        order_idx INTEGER PRIMARY KEY, headwords TEXT, body TEXT)''')
+    cur.execute('''CREATE TABLE doederlein_index (
+        word TEXT, order_idx INTEGER)''')
+    cur.execute('CREATE INDEX idx_doed_index_word ON doederlein_index(word)')
+
+    for i, m in enumerate(matches):
+        headwords_raw = m.group(1)
+        headwords = [h.strip().rstrip('.') for h in re.split(r'[;,]', headwords_raw)]
+        seg_end = matches[i + 1].start() if i + 1 < len(matches) else len(body)
+        text = _clean_doederlein_text(body[m.end():seg_end])
+        cur.execute('INSERT INTO doederlein VALUES (?,?,?)',
+                    (i + 1, ','.join(headwords), text))
+        for h in headwords:
+            cur.execute('INSERT INTO doederlein_index VALUES (?,?)', (h.lower(), i + 1))
+
+    n_xref = 0
+    for m in DOED_XREF_RE.finditer(body):
+        source, target = m.group(1).strip(), m.group(2).strip().lower()
+        cur.execute('SELECT order_idx FROM doederlein_index WHERE word = ? LIMIT 1', (target,))
+        row = cur.fetchone()
+        if row:
+            cur.execute('INSERT INTO doederlein_index VALUES (?,?)', (source.lower(), row[0]))
+            n_xref += 1
+
+    conn.commit()
+    conn.close()
+    print(f'  done: {len(matches)} articles, {n_xref} cross-reference redirects '
+          f'-> {SYN_DB_PATH} (table doederlein)')
+
+
 def norm_join_key(word):
     """Normalize a Latin word for joining across sources: strip length marks,
     lowercase, i-for-j, u-for-v, no spaces (res publica ~ respublica)."""
@@ -388,3 +461,4 @@ if __name__ == '__main__':
     build_synonyms()
     build_terminations()
     build_spinelli()
+    build_doederlein()

@@ -364,7 +364,7 @@ def styled_synonym_body(body, max_chars=2500):
     return html.escape(body)
 
 
-def render_synonyms(articles, spinelli_syns=None):
+def render_synonyms(articles, spinelli_syns=None, doederlein_articles=None):
     parts = ['<div class="syn-section">',
              '<p class="section-label">Synonyms &amp; Near-Synonyms</p>']
     if spinelli_syns:
@@ -372,6 +372,13 @@ def render_synonyms(articles, spinelli_syns=None):
         parts.append('<div class="syn-article">')
         parts.append(f'<p class="syn-body syn-spinelli">{items} '
                      f'<span class="syn-ref">(Spinelli–Fenzi 2019)</span></p>')
+        parts.append('</div>')
+    for num, headwords, body in (doederlein_articles or []):
+        words = ', '.join(headwords.split(','))
+        parts.append('<div class="syn-article">')
+        parts.append(f'<p class="syn-headwords">{html.escape(words)} '
+                     f'<span class="syn-ref">(Döderlein §{num})</span></p>')
+        parts.append(f'<p class="syn-body">{styled_synonym_body(body)}</p>')
         parts.append('</div>')
     for num, headwords, body in articles:
         words = ', '.join(headwords.split(','))
@@ -670,6 +677,22 @@ def build():
         spinelli[norm_key] = json.loads(syns_json)
     print(f'  Spinelli near-synonyms loaded for {len(spinelli)} headwords')
 
+    # Döderlein also cites verbs by infinitive; same resolution trick as Ramshorn.
+    doed_by_lemma = defaultdict(set)
+    try:
+        scur.execute('SELECT word, order_idx FROM doederlein_index')
+        rows = scur.fetchall()
+    except sqlite3.OperationalError:
+        rows = []
+        print('  (no doederlein_index table - run scripts/build_dbs.py to regenerate)')
+    for word, order_idx in rows:
+        doed_by_lemma[word].add(order_idx)
+        mcur.execute("SELECT DISTINCT lemma FROM forms WHERE form = ? "
+                     "AND analyses LIKE '%pres inf%'", (word,))
+        for (lemma,) in mcur.fetchall():
+            doed_by_lemma[lemma.lower()].add(order_idx)
+    print(f'  Doederlein index resolved for {len(doed_by_lemma)} lookup keys')
+
     n = n_syn = n_morph = n_parse_fail = 0
     with open(OUTPUT_XML_PATH, 'w', encoding='utf-8') as out:
         out.write('<?xml version="1.0" encoding="UTF-8"?>\n')
@@ -728,6 +751,18 @@ def build():
             spinelli_syns = spinelli.get(norm_join_key(lemma_display)) or \
                 spinelli.get(norm_join_key(base_key))
 
+            doed_articles = []
+            seen_doed_nums = set()
+            doed_nums = sorted(doed_by_lemma.get(key.lower(), set()) |
+                               doed_by_lemma.get(base_key.lower(), set()))
+            for order_idx in doed_nums[:4]:
+                scur.execute('SELECT order_idx, headwords, body FROM doederlein WHERE order_idx = ?',
+                            (order_idx,))
+                row = scur.fetchone()
+                if row and row[0] not in seen_doed_nums:
+                    seen_doed_nums.add(row[0])
+                    doed_articles.append(row)
+
             # ---- assemble
             out.write(f'    <d:entry id="ls_{n}" d:title="{html.escape(title)}">\n')
             for kw in sorted(indices):
@@ -740,9 +775,9 @@ def build():
                                  for b in domain_badges)
                 out.write(f'        <div class="domain-badges">{badges}</div>\n')
             out.write(f'        <div class="definition">{body_html}</div>\n')
-            if syn_articles or spinelli_syns:
+            if syn_articles or spinelli_syns or doed_articles:
                 n_syn += 1
-                out.write(f'        {render_synonyms(syn_articles, spinelli_syns)}\n')
+                out.write(f'        {render_synonyms(syn_articles, spinelli_syns, doed_articles)}\n')
             if morph_rows:
                 morph_html = render_morphology(morph_rows, is_deponent=is_deponent)
                 if morph_html:

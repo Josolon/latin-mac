@@ -82,12 +82,16 @@ def main():
     check('at least one usg-style label rendered somewhere', 'class="usg-style"' in content)
     check('cross-reference markers styled (xr-ref)', 'class="xr-ref"' in content)
 
-    print('== Synonyms (Ramshorn + Spinelli) ==')
+    print('== Synonyms (Ramshorn + Spinelli + Doederlein) ==')
     check('amo has a synonyms section', amo and 'class="syn-section"' in amo)
     check('amo cites Ramshorn (§66)', amo and 'Ramshorn §66' in amo)
+    check('amo cites Doederlein (§145)', amo and 'Döderlein §145' in amo)
     iubeo = entry_by_title(content, 'jubeo')
     check('jubeo has a Spinelli near-synonym list (via iubeo, i/j-normalized)',
           iubeo and 'syn-spinelli' in iubeo)
+    tempus = entry_by_title(content, 'tempus')
+    check('tempus has all three synonym sources (Ramshorn + Spinelli + Doederlein)',
+          tempus and 'syn-spinelli' in tempus and 'Döderlein' in tempus and 'Ramshorn' in tempus)
 
     print('== Grammar entries (Allen & Greenough) ==')
     ablabs = entry_by_title(content, 'Ablative Absolute')

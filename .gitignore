@@ -30,6 +30,9 @@ data/morpheus/
 # Ignore raw Ramshorn OCR text / archive.org downloads
 data/ramshorn/
 
+# Ignore raw Doederlein text / Project Gutenberg downloads
+data/doederlein/
+
 # Ignore Apple Dictionary Development Kit build artifacts
 src/objects/
 src/*.dictionary

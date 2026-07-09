@@ -6,13 +6,13 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 DDK_BIN="/Applications/XcodeAdditionalTools/Utilities/DictionaryDevelopmentKit/bin/build_dict.sh"
 DDK_BIN_SPACED="/Applications/Additional Tools for Xcode/Utilities/DictionaryDevelopmentKit/bin/build_dict.sh"
 
-echo "[1/5] Checking platform"
+echo "[1/6] Checking platform"
 if [[ "$(uname -s)" != "Darwin" ]]; then
   echo "This installer is for macOS only."
   exit 1
 fi
 
-echo "[2/5] Checking DictionaryDevelopmentKit"
+echo "[2/6] Checking DictionaryDevelopmentKit"
 if [[ ! -x "${DDK_BIN}" ]]; then
   echo "Missing DictionaryDevelopmentKit build tool: ${DDK_BIN}"
   if [[ -x "${DDK_BIN_SPACED}" ]]; then
@@ -31,7 +31,8 @@ for f in \
   "data/lewis_short/lat.ls.perseus-eng2.xml" \
   "data/analyses/latin-lemmata.txt" \
   "data/ramshorn/ramshorn_1841_djvu.txt" \
-  "data/allen_greenough/ag_grammar.xml"; do
+  "data/allen_greenough/ag_grammar.xml" \
+  "data/doederlein/doederlein_gutenberg.txt"; do
   if [[ ! -f "${REPO_ROOT}/${f}" ]]; then
     echo "  Missing ${f}"
     missing=1

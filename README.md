@@ -2,12 +2,12 @@
 
 A custom `.dictionary` plugin for the native macOS Dictionary app and system-wide "Look Up" feature. This dictionary combines the **complete Lewis & Short Latin Dictionary** (51,636 unabridged entries) with a **Synonyms & Near-Synonyms section**, **always-visible morphology tables**, mined **usage/register labels**, and **388 grammar reference entries** from Allen & Greenough's *New Latin Grammar*.
 
-**v1.3.0** — Adds subjunctive/imperative/gerundive morphology, quoted-example citations split into distinct Latin quote / English gloss / reference, real HTML paradigm tables in the grammar entries (previously garbled run-on text), a Ramshorn "Latin Terminations" word-formation reference, and styled cross-reference markers.
+**v1.4.0** — Adds Döderlein's *Hand-book of Latin Synonymes* as a third synonym source (549 articles), subjunctive/imperative/gerundive morphology, quoted-example citations split into distinct Latin quote / English gloss / reference, real HTML paradigm tables in the grammar entries (previously garbled run-on text), a Ramshorn "Latin Terminations" word-formation reference, and styled cross-reference markers.
 
 ## ✨ Features
 
 * **51k Unabridged Lewis & Short Entries:** The complete 1879 Harpers'/Oxford *A Latin Dictionary* compiled from Perseus TEI-XML into the macOS `.dictionary` format.
-* **Synonyms & Near-Synonyms:** two complementary sources attached to the relevant entries — a compact near-synonym list (with declension/conjugation markup) from Spinelli–Fenzi's *First Online Dictionary of Latin Near-Synonyms* (St Andrews, 2019), and 1,015 discussion articles from Ramshorn's *Dictionary of Latin Synonymes* (tr. Lieber, 1841) — e.g. *amo* shows the Amare/Diligere/Amicus/Caritas discussion distinguishing the shades of meaning.
+* **Synonyms & Near-Synonyms:** three complementary sources attached to the relevant entries — a compact near-synonym list (with declension/conjugation markup) from Spinelli–Fenzi's *First Online Dictionary of Latin Near-Synonyms* (St Andrews, 2019), 1,015 discussion articles from Ramshorn's *Dictionary of Latin Synonymes* (tr. Lieber, 1841), and 549 discussion articles from Döderlein's *Hand-book of Latin Synonymes* (tr. Arnold, 1874) — e.g. *amo* shows both Ramshorn's and Döderlein's independent treatments of Amare/Diligere/Caritas distinguishing the shades of meaning.
 * **Principal Parts:** Verbs lead with the classic citation form Latin is taught with — *amo, amare, amavi, amatus* — or for deponents, *sequor, sequi, secutus sum*. Deponent detection comes from L&S's own part-of-speech tag; the 4th part falls back to the future active participle for intransitive verbs with no perfect passive participle.
 * **Morphology Tables:** Nouns and adjectives get a Case × Number declension grid; verbs get an indicative (1st sg.) table across all six tenses in both voices, plus infinitives, subjunctive (1st sg., 4 tenses), imperative (2nd sg./pl., present & future), and the gerundive — built from the Perseus/Morpheus full-form analyses (392k forms). Subjunctive/imperative are shown only where actually attested, since Morpheus's corpus-attested coverage is inconsistent across verbs.
 * **Usage & Register Labels:** L&S's own `<usg>` markup is mined and styled instead of rendered as flat text — technical-domain labels (Military/Medical/Mercantile/Political term) surface as badges under the headword; rhetorical labels (Lit./Transf./Trop./Poet./Meton.) and inline case/mood/number abbreviations get distinct styling inline.
@@ -69,10 +69,17 @@ None of this is committed to the repo (see `.gitignore`):
      https://raw.githubusercontent.com/PerseusDL/canonical-pdlrefwk/master/data/viaf39744457/001/viaf39744457.001.perseus-eng1.xml
    ```
 
+6. **Döderlein's Hand-book of Latin Synonymes (public domain)** — Project Gutenberg EBook #33197 into `data/doederlein/`:
+   ```bash
+   mkdir -p data/doederlein
+   curl -L -o data/doederlein/doederlein_gutenberg.txt \
+     https://www.gutenberg.org/cache/epub/33197/pg33197.txt
+   ```
+
 ### Step 2 — Build the databases and dictionary XML
 
 ```bash
-python3 scripts/build_dbs.py      # L&S / analyses / Ramshorn / Spinelli -> SQLite (ls.db, morph.db, synonyms.db)
+python3 scripts/build_dbs.py      # L&S / analyses / Ramshorn / Spinelli / Doederlein -> SQLite (ls.db, morph.db, synonyms.db)
 python3 scripts/build_grammar.py  # A&G TEI-XML -> data/grammar.db
 python3 scripts/build_xml.py      # SQLite -> src/LatinDictionary.xml (~106 MB)
 python3 scripts/test_dictionary.py  # regression checks (XML validity + known-entry assertions)
@@ -98,14 +105,15 @@ latin-mac/
 │   ├── analyses/              # Morpheus full-form data via Diogenes [gitignored]
 │   ├── ramshorn/              # Ramshorn 1841 OCR text [gitignored]
 │   ├── spinelli/              # Spinelli-Fenzi near-synonyms JSON (committed, 86 KB)
+│   ├── doederlein/            # Doederlein 1874 Gutenberg text [gitignored]
 │   ├── allen_greenough/       # A&G Perseus TEI-XML [gitignored]
 │   ├── morpheus/              # Morpheus engine checkout, optional [gitignored]
 │   ├── ls.db                  # SQLite L&S entries [gitignored]
 │   ├── morph.db               # SQLite full-form morphology [gitignored]
-│   ├── synonyms.db            # SQLite Ramshorn + Spinelli articles [gitignored]
+│   ├── synonyms.db            # SQLite Ramshorn + Spinelli + Doederlein articles [gitignored]
 │   └── grammar.db             # SQLite A&G sections + named rules [gitignored]
 ├── scripts/
-│   ├── build_dbs.py           # L&S / analyses / Ramshorn / Spinelli -> SQLite
+│   ├── build_dbs.py           # L&S / analyses / Ramshorn / Spinelli / Doederlein -> SQLite
 │   ├── build_grammar.py       # A&G TEI-XML -> grammar.db
 │   ├── build_xml.py           # SQLite -> Apple Dictionary XML
 │   ├── test_dictionary.py     # Regression checks on the generated XML
@@ -125,6 +133,7 @@ latin-mac/
 * **Morphology:** Full-form analyses generated by the Perseus [Morpheus](https://github.com/perseids-tools/morpheus) analyzer, as packaged by [Diogenes](https://github.com/pjheslin/diogenes-prebuilt-data).
 * **Synonyms & Word-Formation:** Ramshorn, *Dictionary of Latin Synonymes, for the use of schools and private students*, translated by Francis Lieber (Boston, 1841) — public domain, OCR text from the [Internet Archive](https://archive.org/details/ramshorn-lewis-dictionary-of-latin-synonymes-1841). Its front-matter "Terminations" guide (word-formation suffixes) is parsed alongside the synonym articles.
 * **Near-Synonyms:** Spinelli & Fenzi, [*The First Online Dictionary of Latin Near-Synonyms*](https://github.com/tommasospinelli/Online-Dictionary-of-Latin-Near-Synonyms) (University of St Andrews, 2019) — CC BY, [DOI 10.17630/3cf644e6-86b8-44d0-a50a-b33c7ca86072](https://doi.org/10.17630/3cf644e6-86b8-44d0-a50a-b33c7ca86072).
+* **Synonyms (second source):** Döderlein, *Hand-book of Latin Synonymes*, translated by H. H. Arnold (1874) — public domain, [Project Gutenberg EBook #33197](https://www.gutenberg.org/ebooks/33197). An independent 19th-century treatment alongside Ramshorn's, often organized and phrased differently for the same headwords.
 * **Grammar:** Allen, Greenough, Kittredge, Howard & D'Ooge, *A New Latin Grammar for Schools and Colleges* (Ginn & Co., 1903) — the original [Perseus Digital Library TEI-XML](https://github.com/PerseusDL/canonical-pdlrefwk) digitization, CC BY-SA 4.0. (Not the later Dickinson College Commentaries / Alpheios revision, which is CC BY-NC-SA and therefore not redistributable here.)
 
 ## 🤝 Contributing
@@ -132,7 +141,7 @@ latin-mac/
 Contributions are welcome. The most valuable are:
 
 * **Weird/broken entries:** With 51,636 entries auto-generated from TEI-XML and an 1841 OCR text, edge cases slip through (mangled preambles, mis-parsed synonym articles, garbled OCR in the synonyms sections). Open an issue with the headword and a screenshot, or trace it to `scripts/build_xml.py` / `scripts/build_dbs.py` and send a PR.
-* **Ramshorn OCR cleanup:** The synonym article text comes from OCR and retains scanning errors. Corrections to the parsing heuristics in `build_dbs.py` (or a cleaner source text) would improve every affected entry.
+* **Ramshorn OCR cleanup:** The synonym article text comes from OCR and retains scanning errors. Corrections to the parsing heuristics in `build_dbs.py` (or a cleaner source text) would improve every affected entry. (Döderlein comes from a clean Project Gutenberg transcription, so this doesn't apply there.)
 * **Styling:** Enhance `src/LatinDictionary.css`.
 
 ## 📄 License
@@ -140,6 +149,7 @@ Contributions are welcome. The most valuable are:
 * **Code** (Python scripts, CSS, Makefile): [MIT License](LICENSE)
 * **Lewis & Short text**: [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) (per Perseus; see their availability statement)
 * **Ramshorn synonyms**: public domain
+* **Döderlein synonyms**: public domain (Project Gutenberg)
 * **Morphology data**: Perseus/Morpheus, CC BY-SA 4.0
 * **Allen & Greenough grammar**: Perseus TEI-XML edition, CC BY-SA 4.0
 
@@ -151,6 +161,7 @@ When distributing this dictionary, the Perseus attribution must remain intact:
 
 * **Charlton T. Lewis & Charles Short**, and the **Perseus Digital Library** for the digitized text.
 * **Ludwig Ramshorn & Francis Lieber** for the synonyms handbook; the **Internet Archive** for the scan.
+* **Ludwig Döderlein & H. H. Arnold** for the second synonyms handbook; **Project Gutenberg** for the clean transcription.
 * **Peter Heslin (Diogenes)** for the prebuilt Morpheus analyses.
 * **Tommaso Spinelli & Giacomo Fenzi** for the near-synonyms dataset.
 * **J.B. Greenough, G.L. Kittredge, A.A. Howard & Benjamin L. D'Ooge**, editors of Allen & Greenough's grammar.
