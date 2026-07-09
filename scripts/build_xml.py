@@ -404,6 +404,9 @@ CASES = ['nom', 'gen', 'dat', 'acc', 'abl', 'voc', 'loc']
 CASE_LABELS = {'nom': 'Nominative', 'gen': 'Genitive', 'dat': 'Dative',
                'acc': 'Accusative', 'abl': 'Ablative', 'voc': 'Vocative',
                'loc': 'Locative'}
+GENDER_ORDER = ['masc', 'fem', 'neut']
+GENDER_LABELS = {'masc': 'Masculine', 'fem': 'Feminine', 'neut': 'Neuter'}
+DEGREE_LABELS = {'comp': 'Comparative', 'superl': 'Superlative'}
 TENSES = ['pres', 'imperf', 'fut', 'perf', 'plup', 'futperf']
 TENSE_LABELS = {'pres': 'Present', 'imperf': 'Imperfect', 'fut': 'Future',
                 'perf': 'Perfect', 'plup': 'Pluperfect', 'futperf': 'Future Perfect'}
@@ -440,8 +443,61 @@ def join_forms(forms):
     return ', '.join(sorted(by_norm.values()))
 
 
-def classify_and_grid(rows):
-    """From (form, analyses) rows build noun grid and verb principal parts."""
+# Morpheus reliably tags regularly-formed comparatives/superlatives (altior,
+# altissimus) with comp/superl - but a handful of common suppletive
+# superlatives are listed under the positive lemma's forms with no degree
+# tag at all (optimus under bonus, maximus under magnus, etc.), because
+# they're orthographically unrelated to the positive stem. Recognized by
+# stem so they still land in the superlative grid/entry instead of getting
+# jumbled into the positive's own declension table.
+SUPPLETIVE_SUPERL_STEMS = {
+    'bonus': 'optim', 'malus': 'pessim', 'magnus': 'maxim',
+    'parvus': 'minim', 'multus': 'plurim',
+}
+# Same five adjectives also have rare/late regularized forms attested
+# alongside the classical suppletive ones (e.g. "bonior"/"bonissimus"
+# beside "melior"/"optimus"); prefer the classical form as the citation
+# headword when both are attested for the same paradigm slot.
+SUPPLETIVE_COMP_STEMS = {
+    'bonus': 'melior', 'malus': 'pei', 'magnus': 'mai',
+    'parvus': 'min', 'multus': 'plus',
+}
+
+
+def _is_suppletive_superl(lemma_hint, form):
+    stem = SUPPLETIVE_SUPERL_STEMS.get(lemma_hint)
+    return bool(stem) and form.lower().startswith(stem)
+
+
+def raw_degree_forms(rows, lemma_hint=None):
+    """All literal spellings (base and enclitic variants alike) tagged
+    comp/superl anywhere in their raw analyses - used to keep degree forms
+    out of the positive entry's search index even when drop_enclitic_variants
+    has already collapsed the enclitic spelling out of classify_and_grid's
+    own working set."""
+    forms = set()
+    for form, analyses in rows:
+        if _is_suppletive_superl(lemma_hint, form):
+            forms.add(form)
+            continue
+        for g in ANALYSIS_GROUP_RE.findall(analyses or ''):
+            toks = set(g.split())
+            if 'comp' in toks or 'superl' in toks:
+                forms.add(form)
+                break
+    return forms
+
+
+def classify_and_grid(rows, lemma_hint=None):
+    """From (form, analyses) rows build a per-degree declension grid and
+    verb principal parts.
+
+    Morpheus ties comparative/superlative adjective forms (melior, optimus)
+    back to the positive-degree lemma (bonus), tagged with 'comp'/'superl'
+    in the analysis. Grouping purely by case/number would jumble all three
+    degrees - and all three genders - into the same table cell, so the
+    grid is keyed [degree]['pos'|'comp'|'superl'][case][number][gender].
+    """
     form_analyses = {}
     for form, analyses in rows:
         groups = ANALYSIS_GROUP_RE.findall(analyses or '')
@@ -449,7 +505,10 @@ def classify_and_grid(rows):
             form_analyses.setdefault(form, set()).update(groups)
     form_analyses = drop_enclitic_variants(form_analyses)
 
-    noun_grid = defaultdict(lambda: defaultdict(set))
+    grid3d = {deg: defaultdict(lambda: defaultdict(lambda: defaultdict(set)))
+              for deg in ('pos', 'comp', 'superl')}
+    comp_raw_forms = set()
+    superl_raw_forms = set()
     verb_parts = defaultdict(set)     # (tense, voice) -> 1st sg ind forms
     infinitives = defaultdict(set)    # (tense, voice) -> forms
     participles = defaultdict(set)    # (tense, voice) -> masc nom sg forms
@@ -470,6 +529,24 @@ def classify_and_grid(rows):
             number = 'sg' if 'sg' in tokset else ('pl' if 'pl' in tokset else None)
             tense = next((t for t in TENSES if t in tokset), None)
             voice = 'act' if 'act' in tokset else ('pass' if 'pass' in tokset else None)
+            if 'superl' in tokset or _is_suppletive_superl(lemma_hint, form):
+                degree = 'superl'
+            elif 'comp' in tokset:
+                degree = 'comp'
+            else:
+                degree = 'pos'
+
+            genders = [ge for ge in GENDER_ORDER if ge in tokset]
+            combined_gender = [t for t in toks if '/' in t and any(p in GENDER_ORDER for p in t.split('/'))]
+            if combined_gender:
+                seen = []
+                for t in combined_gender:
+                    for p in t.split('/'):
+                        if p in GENDER_ORDER and p not in seen:
+                            seen.append(p)
+                genders = seen
+            if not genders:
+                genders = [None]
 
             if 'part' in tokset:
                 p_tense = next((t for t in ('pres', 'perf', 'fut') if t in tokset), None)
@@ -507,18 +584,23 @@ def classify_and_grid(rows):
                 n_verbal += 1
 
             if number and 'part' not in tokset and not tense:
+                cases_here = []
                 if combined:
                     for t in combined:
-                        for p in t.split('/'):
-                            if p in CASES:
-                                noun_grid[p][number].add(form)
-                                n_nominal += 1
+                        cases_here.extend(p for p in t.split('/') if p in CASES)
                 elif case:
-                    noun_grid[case][number].add(form)
-                    n_nominal += 1
+                    cases_here = [case]
+                for c in cases_here:
+                    for ge in genders:
+                        grid3d[degree][c][number][ge].add(form)
+                        n_nominal += 1
+                if cases_here and degree == 'comp':
+                    comp_raw_forms.add(form)
+                elif cases_here and degree == 'superl':
+                    superl_raw_forms.add(form)
 
-    return (noun_grid, verb_parts, infinitives, participles, subj_parts, imperatives,
-            supines, gerundives, n_nominal, n_verbal)
+    return (grid3d, comp_raw_forms, superl_raw_forms, verb_parts, infinitives,
+            participles, subj_parts, imperatives, supines, gerundives, n_nominal, n_verbal)
 
 
 def render_principal_parts(verb_parts, infinitives, participles, supines, is_deponent):
@@ -592,9 +674,103 @@ def render_imperative(imperatives):
             + ''.join(rows) + '</table></div>')
 
 
-def render_morphology(rows, is_deponent=False):
-    (noun_grid, verb_parts, infinitives, participles, subj_parts, imperatives,
-     supines, gerundives, n_nominal, n_verbal) = classify_and_grid(rows)
+def genders_in(degree_grid):
+    """Which genders (besides the ungendered slot) are actually populated
+    in this degree's grid, in traditional citation order."""
+    found = set()
+    for numbers in degree_grid.values():
+        for gendered in numbers.values():
+            for ge, forms in gendered.items():
+                if ge and forms:
+                    found.add(ge)
+    return [g for g in GENDER_ORDER if g in found]
+
+
+def slice_gender(degree_grid, gender):
+    """Collapse a [case][number][gender] grid to [case][number] for one
+    gender - or, if gender is None, union across every gender key (the
+    plain-noun / no-gender-attested case, keeping the old flat behavior)."""
+    out = defaultdict(lambda: defaultdict(set))
+    for c, numbers in degree_grid.items():
+        for num, gendered in numbers.items():
+            if gender is None:
+                for forms in gendered.values():
+                    out[c][num] |= forms
+            else:
+                out[c][num] |= gendered.get(gender, set())
+    return out
+
+
+def write_declension_table(grid2d):
+    rows = []
+    for c in CASES:
+        if c not in grid2d:
+            continue
+        sg = join_forms(grid2d[c].get('sg', set())) or '—'
+        pl = join_forms(grid2d[c].get('pl', set())) or '—'
+        if sg == '—' and pl == '—':
+            continue
+        rows.append(f'<tr><td class="case-label">{CASE_LABELS[c]}</td>'
+                    f'<td>{html.escape(sg)}</td><td>{html.escape(pl)}</td></tr>')
+    if not rows:
+        return ''
+    return ('<table class="morphology-table">'
+            '<tr><th>Case</th><th>Singular</th><th>Plural</th></tr>'
+            + ''.join(rows) + '</table>')
+
+
+def write_declension_section(degree_grid):
+    """Render one declension table, split into one per gender only when
+    more than one gender is actually attested for this degree - so plain
+    nouns/single-gender adjectives still get the old flat table."""
+    genders = genders_in(degree_grid)
+    parts = []
+    if len(genders) > 1:
+        for ge in genders:
+            tbl = write_declension_table(slice_gender(degree_grid, ge))
+            if tbl:
+                parts.append(f'<p class="gender-label">{GENDER_LABELS[ge]}</p>')
+                parts.append(tbl)
+    else:
+        tbl = write_declension_table(slice_gender(degree_grid, None))
+        if tbl:
+            parts.append(tbl)
+    return ''.join(parts)
+
+
+def pick_canonical_form(degree_grid, prefer_stem=None):
+    """Nominative singular, preferring masculine (the traditional
+    dictionary-citation gender), falling back through ungendered -> feminine
+    -> neuter -> any populated cell at all. When multiple spellings are
+    attested for the same slot, prefer_stem picks out the classical one
+    (e.g. "melior" over the rare regularized "bonior")."""
+    def pick(forms):
+        candidates = sorted(forms)
+        if prefer_stem:
+            preferred = [f for f in candidates if f.lower().startswith(prefer_stem)]
+            if preferred:
+                return sorted(preferred)[0]
+        return candidates[0]
+
+    nom_sg = degree_grid.get('nom', {}).get('sg', {})
+    for ge in ('masc', None, 'fem', 'neut'):
+        forms = nom_sg.get(ge)
+        if forms:
+            return pick(forms)
+    for numbers in degree_grid.values():
+        for gendered in numbers.values():
+            for forms in gendered.values():
+                if forms:
+                    return pick(forms)
+    return ''
+
+
+def render_morphology(classified, is_deponent=False, lemma_hint=None):
+    (grid3d, comp_raw_forms, superl_raw_forms, verb_parts, infinitives, participles,
+     subj_parts, imperatives, supines, gerundives, n_nominal, n_verbal) = classified
+    noun_grid = grid3d['pos']
+    comp_stem = SUPPLETIVE_COMP_STEMS.get(lemma_hint)
+    superl_stem = SUPPLETIVE_SUPERL_STEMS.get(lemma_hint)
     parts = []
 
     if n_verbal > n_nominal and verb_parts:
@@ -633,19 +809,69 @@ def render_morphology(rows, is_deponent=False):
         parts.append(render_imperative(imperatives))
     elif noun_grid:
         parts.append('<div class="morph-section">')
+        has_degrees = bool(grid3d['comp']) or bool(grid3d['superl'])
+        if has_degrees:
+            pos_form = pick_canonical_form(noun_grid)
+            comp_form = pick_canonical_form(grid3d['comp'], prefer_stem=comp_stem)
+            superl_form = pick_canonical_form(grid3d['superl'], prefer_stem=superl_stem)
+            bits = []
+            if pos_form:
+                bits.append(f'Positive: <b class="la-word">{html.escape(pos_form)}</b>')
+            if comp_form:
+                bits.append(f'Comparative: <b class="la-word">{html.escape(comp_form)}</b>')
+            if superl_form:
+                bits.append(f'Superlative: <b class="la-word">{html.escape(superl_form)}</b>')
+            if bits:
+                parts.append(f'<p class="entry-degree-forms">{" · ".join(bits)}</p>')
         parts.append('<p class="section-label">Morphology — Declension</p>')
-        parts.append('<table class="morphology-table">')
-        parts.append('<tr><th>Case</th><th>Singular</th><th>Plural</th></tr>')
-        for c in CASES:
-            if c not in noun_grid:
-                continue
-            sg = join_forms(noun_grid[c].get('sg', [])) or '—'
-            pl = join_forms(noun_grid[c].get('pl', [])) or '—'
-            parts.append(f'<tr><td class="case-label">{CASE_LABELS[c]}</td>'
-                         f'<td>{html.escape(sg)}</td><td>{html.escape(pl)}</td></tr>')
-        parts.append('</table></div>')
+        parts.append(write_declension_section(noun_grid))
+        parts.append('</div>')
 
     return ''.join(parts)
+
+
+def write_degree_entries(out, deg_counter, lemma_display, classified, lemma_hint=None):
+    """Comparative/superlative forms get their own synthetic dictionary
+    entries (own headword, own gender-split declension table, own search
+    index) rather than being crammed into the positive entry's table -
+    see Josolon/recap.md for the design rationale (ported from the
+    ancient-greek-mac sister project). Returns the updated counter."""
+    grid3d, comp_raw_forms, superl_raw_forms = classified[0], classified[1], classified[2]
+    raw_by_degree = {'comp': comp_raw_forms, 'superl': superl_raw_forms}
+    stem_by_degree = {'comp': SUPPLETIVE_COMP_STEMS.get(lemma_hint),
+                       'superl': SUPPLETIVE_SUPERL_STEMS.get(lemma_hint)}
+
+    for degree in ('comp', 'superl'):
+        degree_grid = grid3d[degree]
+        raw_forms = raw_by_degree[degree]
+        if not degree_grid or not raw_forms:
+            continue
+        canonical = pick_canonical_form(degree_grid, prefer_stem=stem_by_degree[degree])
+        if not canonical:
+            continue
+        deg_counter += 1
+        title = sanitize_key(strip_length_marks(canonical).replace('-', '')) or canonical
+
+        indices = set()
+        indices |= search_variants(canonical)
+        for form in raw_forms:
+            indices |= search_variants(form)
+
+        out.write(f'    <d:entry id="deg_{deg_counter}" d:title="{html.escape(title)}">\n')
+        for kw in sorted(indices):
+            kw = sanitize_key(kw)
+            if kw:
+                out.write(f'        <d:index d:value="{html.escape(kw)}"/>\n')
+        out.write(f'        <h1 class="entry-lemma">{html.escape(canonical)}</h1>\n')
+        out.write(f'        <p class="ag-level-label">{DEGREE_LABELS[degree]} degree of '
+                  f'<b class="la-word">{html.escape(lemma_display)}</b>.</p>\n')
+        out.write('        <div class="morph-section">\n')
+        out.write(f'        <p class="section-label">Morphology — Declension ({DEGREE_LABELS[degree]})</p>\n')
+        out.write(write_declension_section(degree_grid) + '\n')
+        out.write('        </div>\n')
+        out.write('    </d:entry>\n\n')
+
+    return deg_counter
 
 
 # ---------------------------------------------------------------------------
@@ -698,7 +924,8 @@ def build():
             doed_by_lemma[lemma.lower()].add(order_idx)
     print(f'  Doederlein index resolved for {len(doed_by_lemma)} lookup keys')
 
-    n = n_syn = n_morph = n_parse_fail = 0
+    n = n_syn = n_morph = n_degree = n_parse_fail = 0
+    deg_counter = 0
     with open(OUTPUT_XML_PATH, 'w', encoding='utf-8') as out:
         out.write('<?xml version="1.0" encoding="UTF-8"?>\n')
         out.write('<d:dictionary xmlns="http://www.w3.org/1999/xhtml" '
@@ -710,15 +937,21 @@ def build():
             base_key = re.sub(r'\d+$', '', key)
             title = sanitize_key(strip_length_marks(lemma_display).replace('-', '')) or base_key
 
-            # ---- search index: headword variants + all inflected forms
-            indices = set()
-            indices |= search_variants(lemma_display)
-            indices |= search_variants(base_key)
             mcur.execute('SELECT form, analyses FROM forms WHERE lemma = ? OR lemma = ?',
                          (key, base_key))
             morph_rows = mcur.fetchall()
+            classified = classify_and_grid(morph_rows, lemma_hint=base_key.lower()) if morph_rows else None
+            degree_raw_forms = raw_degree_forms(morph_rows, lemma_hint=base_key.lower()) if morph_rows else set()
+
+            # ---- search index: headword variants + all inflected forms.
+            # Comparative/superlative forms are indexed only on their own
+            # synthetic entry (below), not here - see write_degree_entries.
+            indices = set()
+            indices |= search_variants(lemma_display)
+            indices |= search_variants(base_key)
             for form, _ in morph_rows:
-                indices |= search_variants(form)
+                if form not in degree_raw_forms:
+                    indices |= search_variants(form)
 
             # ---- L&S body
             domain_badges = []
@@ -783,15 +1016,22 @@ def build():
             if syn_articles or spinelli_syns or doed_articles:
                 n_syn += 1
                 out.write(f'        {render_synonyms(syn_articles, spinelli_syns, doed_articles)}\n')
-            if morph_rows:
-                morph_html = render_morphology(morph_rows, is_deponent=is_deponent)
+            if classified:
+                morph_html = render_morphology(classified, is_deponent=is_deponent,
+                                               lemma_hint=base_key.lower())
                 if morph_html:
                     n_morph += 1
                     out.write(f'        {morph_html}\n')
             out.write('    </d:entry>\n\n')
 
+            if classified and (classified[1] or classified[2]):
+                before = deg_counter
+                deg_counter = write_degree_entries(out, deg_counter, lemma_display, classified,
+                                                    lemma_hint=base_key.lower())
+                n_degree += deg_counter - before
+
             if n % 5000 == 0:
-                print(f'  {n}/{total} (syn: {n_syn}, morph: {n_morph})')
+                print(f'  {n}/{total} (syn: {n_syn}, morph: {n_morph}, degree: {n_degree})')
 
         n_grammar = write_grammar_entries(out, n)
         n_terms = write_termination_entries(out, n + n_grammar)
@@ -799,8 +1039,8 @@ def build():
         out.write('</d:dictionary>\n')
 
     print(f'Done. {n} entries; {n_syn} with synonyms, {n_morph} with morphology, '
-          f'{n_parse_fail} XML-fallback; {n_grammar} grammar entries; '
-          f'{n_terms} termination entries.')
+          f'{n_parse_fail} XML-fallback; {n_degree} comparative/superlative entries; '
+          f'{n_grammar} grammar entries; {n_terms} termination entries.')
 
 
 # ---------------------------------------------------------------------------

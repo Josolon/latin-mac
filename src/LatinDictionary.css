@@ -345,6 +345,33 @@ span.pp-missing {
     color: #999;
 }
 
+/* --- Adjective degree summary (Positive / Comparative / Superlative) --- */
+p.entry-degree-forms {
+    margin: 0;
+    padding: 8px 10px;
+    background-color: #edf1fb;
+    border-bottom: 1px solid #c8d4ee;
+    font-size: 0.9em;
+    color: #2a3a6a;
+}
+
+p.entry-degree-forms b.la-word {
+    color: #1a1a1a;
+}
+
+/* --- Gender-split declension tables (adjectives) --- */
+p.gender-label {
+    margin: 0;
+    padding: 3px 8px;
+    font-size: 0.78em;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: #2a4a9a;
+    background-color: #f0f4fc;
+    border-top: 1px solid #dde6f8;
+}
+
 /* --- Morphology Table --- */
 .morphology-table {
     width: 100%;

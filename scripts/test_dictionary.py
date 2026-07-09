@@ -102,6 +102,30 @@ def main():
     check('A&G paradigm tables render as real <table> (not flattened)',
           '<table class="ag-table">' in content and '<tr><td>' in content)
 
+    print('== Adjective degree splitting (bonus/melior/optimus) ==')
+    bonus_entries = re.findall(r'<d:entry[^>]*d:title="bonus">.*?</d:entry>', content, re.DOTALL)
+    check('exactly one entry titled bonus', len(bonus_entries) == 1)
+    bonus = bonus_entries[0] if bonus_entries else None
+    check('bonus has a degree summary line', bonus and 'entry-degree-forms' in bonus)
+    check('bonus degree summary cites melior and optimus (not the rare bonior/bonissimus)',
+          bonus and 'melior' in bonus and 'optimus' in bonus)
+    check('bonus positive declension is gender-split (masc/fem/neut)',
+          bonus and 'Masculine' in bonus and 'Feminine' in bonus and 'Neuter' in bonus)
+    check('bonus search index does not include comparative/superlative forms',
+          bonus and 'd:index d:value="melior"' not in bonus
+          and 'd:index d:value="optima"' not in bonus)
+    melior = entry_by_title(content, 'melior')
+    check('melior has its own synthetic entry', melior is not None)
+    check('melior entry backlinks to its positive degree',
+          melior and 'Comparative degree of' in melior)
+    optimus = entry_by_title(content, 'optimus')
+    check('optimus has its own synthetic entry (suppletive superlative)', optimus is not None)
+    check('optimus entry backlinks to its positive degree',
+          optimus and 'Superlative degree of' in optimus)
+    rex = entry_by_title(content, 'rex')
+    check('plain noun (rex) still renders a flat, non-gender-split declension table',
+          rex and 'gender-label' not in rex)
+
     print('== Ramshorn Terminations ==')
     term_xi = entry_by_title(content, 'Latin Terminations XI')
     check('Latin Terminations XI entry exists', term_xi is not None)
