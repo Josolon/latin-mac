@@ -9,6 +9,7 @@ Run from the repo root:  python3 scripts/test_dictionary.py
 import os
 import re
 import sys
+import unicodedata
 import xml.etree.ElementTree as ET
 
 XML_PATH = 'src/LatinDictionary.xml'
@@ -41,6 +42,12 @@ def main():
 
     with open(XML_PATH, encoding='utf-8') as f:
         content = f.read()
+    # NFC-normalize before any substring check: IPA combining marks (e.g.
+    # i + combining tilde) come out of build_xml.py decomposed, but the
+    # same sequence typed as a literal in this file gets auto-composed to
+    # a single precomposed codepoint by most editors, so an "in" check
+    # between the two would silently fail despite being the same text.
+    content = unicodedata.normalize('NFC', content)
 
     print('== Entry counts ==')
     n_entries = content.count('<d:entry ')
@@ -106,6 +113,24 @@ def main():
     dominus = entry_by_title(content, 'dominus')
     check('dominus shows IPA with antepenult stress (light penult -> ˈdɔ.mɪ.nʊs)',
           dominus and 'ˈdɔ.mɪ.nʊs' in dominus)
+
+    print('== Reconstructed pronunciation - Wiktionary-verified refinements ==')
+    insula = entry_by_title(content, 'insula')
+    check('insula nasalizes the vowel before -ns- and drops the n '
+          '(Wiktionary: [ˈĩː.sʊ.ɫa])', insula and 'ˈĩː.sʊ.ɫa' in insula)
+    agellus = entry_by_title(content, 'agellus')
+    check('agellus keeps geminate ll plain (l, not dark ɫ) on BOTH members - '
+          'a real bug where only the first half got fixed (Wiktionary-style: '
+          '[a.ˈgɛl.lʊs])', agellus and 'a.ˈgɛl.lʊs' in agellus)
+    lupus = entry_by_title(content, 'lupus')
+    check('lupus shows dark l (l pinguis) before a back vowel '
+          '(Wiktionary: [ˈɫʊ.pʊs])', lupus and 'ˈɫʊ.pʊs' in lupus)
+    homo = entry_by_title(content, 'homo')
+    check("homo's unmarked final -o is inferred long, not just verbs' "
+          '(Wiktionary: homō -> [...moː])', homo and 'moː' in homo)
+    duo = entry_by_title(content, 'duo')
+    check('duo tenses the hiatus u without lengthening it - still short, '
+          'different quality (Wiktionary: [ˈdu.ɔ])', duo and 'ˈdu.ɔ' in duo)
 
     print('== abactor (word-root etymology) ==')
     abactor = entry_by_title(content, 'abactor')

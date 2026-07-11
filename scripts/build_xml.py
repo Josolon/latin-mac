@@ -224,6 +224,113 @@ def _ipa_phonemes(letters):
     return units
 
 
+# Vowel-quality mapping used for nasalization: -um, cōnsul, etc. nasalize
+# onto the TENSE/long-vowel timbre regardless of the original vowel's own
+# length (etiam's short a -> nasalized long [ãː], insula's short i -> [ĩː]),
+# per Wiktionary's Module:la-pronunc and W. S. Allen's Vox Latina. Built
+# from _IPA_VOWELS so it can't drift out of sync with the vowel table.
+_IPA_NASAL_BASE = {}
+for _letter, (_short, _long) in _IPA_VOWELS.items():
+    _base = _long.rstrip('ː')
+    _IPA_NASAL_BASE[_short] = _base
+    _IPA_NASAL_BASE[_long] = _base
+
+# High-front vowels that trigger "l exilis" (clear [l]) on a preceding L;
+# every other vowel gets the dark "l pinguis" [ɫ] Latin /l/ defaults to.
+_IPA_CLEAR_L_VOWELS = {'ɪ', 'iː', 'ʏ', 'yː'}
+
+# Reverse lookup from a short vowel's ipa symbol back to its plain letter,
+# used only to recognize the a/e/o class for the hiatus-tensing exception
+# below (duo -> [ˈdu.ɔ] tenses, but deus/meus -> stays [ˈdɛ.ʊs]-shaped,
+# not tensed - Wiktionary's module carves out precisely "a/e/o + u + m/s
+# at the absolute end of the word" from the general tensing rule).
+_IPA_SHORT_LETTER = {short: letter for letter, (short, _) in _IPA_VOWELS.items()}
+
+
+def _apply_hiatus_tensing(phon):
+    """A short vowel immediately before another vowel (true hiatus, no
+    intervening consonant) takes the tense/closed timbre instead of its
+    usual lax one - still phonemically short (doesn't affect syllable
+    weight/stress), just a different quality: duo -> [ˈdu.ɔ], not
+    [ˈdʊ.ɔ]. Per Wiktionary's Module:la-pronunc, with its one carve-out
+    reproduced here: this does NOT apply when the vowel pair is a/e/o
+    followed by u, with that u itself directly followed by a word-final
+    m or s (deus, meus, suus-adjacent patterns) - those keep the lax
+    vowel instead."""
+    n = len(phon)
+    out = list(phon)
+    for i, unit in enumerate(out):
+        if unit[0] != 'V' or unit[2] or unit[1] not in _IPA_NASAL_BASE:
+            continue  # only short vowels (unit[2] is is_long) are tensed
+        nxt = out[i + 1] if i + 1 < n else None
+        if not nxt or nxt[0] != 'V':
+            continue
+        letter = _IPA_SHORT_LETTER.get(unit[1])
+        nxt_letter = _IPA_SHORT_LETTER.get(nxt[1])
+        exception = (
+            letter in ('a', 'e', 'o') and nxt_letter == 'u' and not nxt[2]
+            and i + 2 < n and out[i + 2][0] == 'C' and out[i + 2][1] in ('m', 's')
+            and i + 3 == n
+        )
+        if not exception:
+            out[i] = ('V', _IPA_NASAL_BASE[unit[1]], False)
+    return out
+
+
+def _apply_nasalization(phon):
+    """Word-final vowel+m, and a vowel before n/m immediately followed by
+    s/f, nasalize onto the vowel and drop the nasal consonant entirely -
+    Wiktionary/Vox Latina's etiam -> [ɛ.ti.ãː], insula -> [ĩː.sʊ.ɫa]. Only
+    a plain following m/n triggers this (not gn, ngu, etc., which are
+    already atomic units by this point and never carry the bare 'n'/'m'
+    ipa string), so it can't misfire on those digraphs."""
+    n = len(phon)
+    drop = set()
+    for i, unit in enumerate(phon):
+        if unit[0] != 'V' or unit[1] not in _IPA_NASAL_BASE:
+            continue
+        base = _IPA_NASAL_BASE[unit[1]]
+        nasalized = base + '̃ː'
+        is_final_m = (i + 1 < n and phon[i + 1][:2] == ('C', 'm') and i + 2 == n)
+        is_pre_sf = (i + 1 < n and phon[i + 1][0] == 'C' and phon[i + 1][1] in ('n', 'm')
+                    and i + 2 < n and phon[i + 2][0] == 'C' and phon[i + 2][1] in ('s', 'f'))
+        if is_final_m or is_pre_sf:
+            phon[i] = ('V', nasalized, True)
+            drop.add(i + 1)
+    return [u for i, u in enumerate(phon) if i not in drop]
+
+
+def _apply_l_allophony(phon):
+    """Latin /l/ defaults to dark "l pinguis" [ɫ]; it's only clear "l
+    exilis" [l] immediately before i/ī/y/ȳ, or as either half of a
+    geminate ll. Same rule Wiktionary's module applies (l -> ɫ
+    everywhere, then reverted in just those two environments)."""
+    n = len(phon)
+    out = list(phon)
+    # Decide every unit from the ORIGINAL (unmutated) phon, not from `out`
+    # as we go, and track which indices a geminate pair has already
+    # resolved (`decided`) so the second half's own turn through the loop
+    # doesn't re-derive its value from its own local context (a vowel,
+    # not the first l) and clobber the pair-aware answer - agellus kept
+    # coming out [ɛl.ɫʊs], only half-fixed, until both of these were in
+    # place together.
+    decided = set()
+    for i, unit in enumerate(phon):
+        if i in decided or unit[0] != 'C' or unit[1] != 'l':
+            continue
+        nxt = phon[i + 1] if i + 1 < n else None
+        if nxt and nxt[0] == 'C' and nxt[1] == 'l':
+            out[i] = ('C', 'l') + unit[2:]
+            out[i + 1] = ('C', 'l') + nxt[2:]
+            decided.add(i)
+            decided.add(i + 1)
+        elif nxt and nxt[0] == 'V' and nxt[1] in _IPA_CLEAR_L_VOWELS:
+            out[i] = ('C', 'l') + unit[2:]
+        else:
+            out[i] = ('C', 'ɫ') + unit[2:]
+    return out
+
+
 def _ipa_split_run(run):
     """A run of consonant units between two vowels -> (coda, onset) ipa
     lists for the preceding/following syllable. A lone stop+liquid pair at
@@ -249,6 +356,9 @@ def latin_to_ipa(word):
     phon = _ipa_phonemes(letters)
     if not phon:
         return None
+    phon = _apply_hiatus_tensing(phon)
+    phon = _apply_nasalization(phon)
+    phon = _apply_l_allophony(phon)
 
     nuclei_idx = [j for j, u in enumerate(phon) if u[0] == 'V']
     if not nuclei_idx:
@@ -661,6 +771,21 @@ SUPPLETIVE_COMP_STEMS = {
 # rather than settling into the fixed semi-deponent pattern the other five
 # have.
 SEMI_DEPONENT_LEMMAS = {'audeo', 'gaudeo', 'soleo', 'fido', 'confido', 'diffido'}
+
+# A word-final, completely unmarked "-o" is long far more often than not
+# (checked directly against Wiktionary's Module:la-pronunc-derived
+# pronunciations: verb 1st sg. amō/legō, 3rd-declension nominatives like
+# homō/virgō, adverbs like ergō, all come out long even where L&S marks
+# nothing at all) - L&S evidently leaves it unmarked because long is the
+# expected default here, the mirror image of every other unmarked vowel
+# defaulting to short elsewhere. A handful of words are genuinely always
+# short instead (duo -> confirmed [ˈdu.ɔ] with no long variant at all,
+# unlike the "common"/either-quantity ego and modo, which this project's
+# engine just defaults long for, matching Wiktionary's primary Classical
+# Latin pronunciation for both). This list is deliberately small and
+# expected to be incomplete - it only holds words actually checked against
+# Wiktionary, not a guess at the full closed set from memory.
+SHORT_FINAL_O_WORDS = {'duo'}
 
 
 def _is_suppletive_superl(lemma_hint, form):
@@ -1255,9 +1380,16 @@ def build():
             # Length marks are the only signal that makes stress placement
             # trustworthy - an unmarked lemma_display is short-by-default
             # per L&S's own convention but too often just "not marked
-            # here", so skip rather than render a guess.
-            if any(ord(c) in (0x304, 0x306) for c in unicodedata.normalize('NFD', lemma_display)):
-                ipa = latin_to_ipa(lemma_display)
+            # here", so skip rather than render a guess. One systematic
+            # exception, verified against Wiktionary rather than assumed:
+            # a word-final unmarked -o (amo, homo, ergo alike) is long far
+            # more often than not - see SHORT_FINAL_O_WORDS above.
+            pron_input = lemma_display
+            if (pron_input and pron_input[-1] == 'o'
+                    and base_key.lower() not in SHORT_FINAL_O_WORDS):
+                pron_input = pron_input[:-1] + 'ō'
+            if any(ord(c) in (0x304, 0x306) for c in unicodedata.normalize('NFD', pron_input)):
+                ipa = latin_to_ipa(pron_input)
                 if ipa:
                     out.write(f'        <p class="ipa-pronunciation">[{html.escape(ipa, quote=False)}]</p>\n')
             if domain_badges:
