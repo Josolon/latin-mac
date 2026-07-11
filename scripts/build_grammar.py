@@ -62,7 +62,7 @@ def render_node(node, current_sect):
         n = node.get('n', '')
         if n:
             current_sect[0] = n
-            parts.append(f'<span class="ag-sect-num">§{html.escape(n)}</span>')
+            parts.append(f'<span class="ag-sect-num">§{html.escape(n, quote=False)}</span>')
         return '', current_sect[0]
 
     if t in ('pb', 'cb', 'milestone'):
@@ -70,14 +70,14 @@ def render_node(node, current_sect):
 
     inner = []
     if node.text:
-        inner.append(html.escape(clean(node.text)))
+        inner.append(html.escape(clean(node.text), quote=False))
     for child in node:
         if tag(child) == 'div':
             continue  # handled separately by the section walker
         child_html, _ = render_node(child, current_sect)
         inner.append(child_html)
         if child.tail:
-            inner.append(html.escape(clean(child.tail)))
+            inner.append(html.escape(clean(child.tail), quote=False))
     body = ' '.join(x for x in inner if x)
     body = re.sub(r'\s+([,;:.])', r'\1', body)
 
@@ -120,16 +120,16 @@ def render_own_content(div, current_sect):
     tracking the running section number as milestones are encountered."""
     parts = []
     if div.text:
-        parts.append(html.escape(clean(div.text)))
+        parts.append(html.escape(clean(div.text), quote=False))
     for child in div:
         if tag(child) == 'div':
             if child.tail:
-                parts.append(html.escape(clean(child.tail)))
+                parts.append(html.escape(clean(child.tail), quote=False))
             continue
         child_html, _ = render_node(child, current_sect)
         parts.append(child_html)
         if child.tail:
-            parts.append(html.escape(clean(child.tail)))
+            parts.append(html.escape(clean(child.tail), quote=False))
     return ' '.join(x for x in parts if x)
 
 

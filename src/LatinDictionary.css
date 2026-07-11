@@ -19,6 +19,14 @@ h1.entry-lemma {
     letter-spacing: 0.02em;
 }
 
+/* --- Reconstructed Pronunciation (Vox Latina) --- */
+p.ipa-pronunciation {
+    font-family: "Doulos SIL", "Charis SIL", "Noto Serif", Georgia, serif;
+    font-size: 0.95em;
+    color: #6b4a3a;
+    margin: 0 0 8px 0;
+}
+
 /* --- Definition Block --- */
 div.definition {
     margin: 6px 0 12px 0;

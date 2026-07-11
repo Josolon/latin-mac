@@ -109,6 +109,183 @@ def sanitize_key(text):
 
 
 # ---------------------------------------------------------------------------
+# Reconstructed Classical Latin pronunciation (per W. Sidney Allen's
+# "Vox Latina")
+# ---------------------------------------------------------------------------
+# Best-effort rule-based IPA transcription from L&S's own macron/breve-marked
+# spelling. Two things make this tractable straight from L&S's orthography:
+#  - Vowel length comes from the macron (long) / breve (short) diacritics;
+#    an unmarked vowel is treated as short, L&S's own editorial convention
+#    (long is marked, short is the default/unmarked state).
+#  - L&S already writes consonantal i/u as j/v (jubeo, video, major, ejus),
+#    so there's no glide-vs-vowel ambiguity to resolve for i/u themselves;
+#    the only remaining glide is u after q, or after g when it follows n
+#    (qu/gu -> a labialized single consonant, not a separate vowel).
+# Entries with no length marking at all are skipped by the caller rather
+# than guessed, since stress placement depends on knowing which vowels are
+# long - see IPA_MIN_LENGTH_MARKS gating in build().
+
+_IPA_VOWEL_LETTERS = set('aeiouy')
+_IPA_VOWELS = {
+    'a': ('a', 'aː'), 'e': ('ɛ', 'eː'), 'i': ('ɪ', 'iː'),
+    'o': ('ɔ', 'oː'), 'u': ('ʊ', 'uː'), 'y': ('ʏ', 'yː'),
+}
+_IPA_DIPHTHONGS = {'ae': 'ai̯', 'oe': 'oi̯', 'au': 'au̯'}
+_IPA_SIMPLE_CONSONANTS = {
+    'b': 'b', 'd': 'd', 'f': 'f', 'j': 'j', 'l': 'l', 'm': 'm',
+    'p': 'p', 'r': 'r', 's': 's', 't': 't', 'v': 'w',
+}
+
+
+def _ipa_letters(word):
+    """word (NFC, may carry macrons/breves) -> [(letter, is_long)], where
+    is_long is True only for a vowel letter directly followed by a macron.
+    Returns None if the word contains anything but letters and length
+    marks (hyphens, spaces, digits, apostrophes - i.e. not a single plain
+    headword we can confidently syllabify)."""
+    d = unicodedata.normalize('NFD', word.lower())
+    out = []
+    i = 0
+    while i < len(d):
+        ch = d[i]
+        if unicodedata.combining(ch):
+            i += 1
+            continue
+        if not ch.isalpha():
+            return None
+        is_long = (ch in _IPA_VOWEL_LETTERS and i + 1 < len(d) and d[i + 1] == '̄')
+        out.append((ch, is_long))
+        i += 1
+    return out
+
+
+def _ipa_phonemes(letters):
+    """[(letter, is_long)] -> [unit], unit = ('V', ipa, is_long) for a
+    vowel/diphthong nucleus or ('C', ipa, is_stop, is_liquid) for a
+    consonant. is_stop/is_liquid flag the two ends of a muta-cum-liquida
+    cluster (stop+l/r), which Latin syllabification keeps together as a
+    single onset rather than splitting across a syllable boundary."""
+    units = []
+    i, n = 0, len(letters)
+    while i < n:
+        ch, is_long = letters[i]
+        nxt = letters[i + 1][0] if i + 1 < n else ''
+        nxt2 = letters[i + 2][0] if i + 2 < n else ''
+
+        if ch + nxt in _IPA_DIPHTHONGS and nxt:
+            units.append(('V', _IPA_DIPHTHONGS[ch + nxt], True))
+            i += 2
+            continue
+        if ch == 'q' and nxt == 'u':
+            units.append(('C', 'kʷ', False, False))
+            i += 2
+            continue
+        if (ch == 'g' and nxt == 'u' and nxt2 in _IPA_VOWEL_LETTERS
+                and units and units[-1][:2] == ('C', 'n')):
+            units.append(('C', 'gʷ', False, False))
+            i += 2
+            continue
+        if ch == 'g' and nxt == 'n':
+            units.append(('C', 'ŋ', False, False))
+            i += 1
+            continue
+        if ch in ('p', 't', 'c') and nxt == 'h':
+            units.append(('C', {'p': 'pʰ', 't': 'tʰ', 'c': 'kʰ'}[ch], False, False))
+            i += 2
+            continue
+        if ch == 'x':
+            units.append(('C', 'k', True, False))
+            units.append(('C', 's', False, False))
+            i += 1
+            continue
+        if ch == 'z':
+            units.append(('C', 'dz', False, False))
+            i += 1
+            continue
+        if ch in _IPA_VOWEL_LETTERS:
+            short, long = _IPA_VOWELS[ch]
+            units.append(('V', long if is_long else short, is_long))
+            i += 1
+            continue
+        if ch == 'c':
+            units.append(('C', 'k', True, False))
+        elif ch == 'g':
+            units.append(('C', 'g', True, False))
+        elif ch == 'n':
+            units.append(('C', 'n', False, False))
+        elif ch == 'h':
+            units.append(('C', 'h', False, False))
+        elif ch in _IPA_SIMPLE_CONSONANTS:
+            units.append(('C', _IPA_SIMPLE_CONSONANTS[ch],
+                          ch in ('p', 'b', 'd', 't'), ch in ('l', 'r')))
+        else:
+            return None
+        i += 1
+    return units
+
+
+def _ipa_split_run(run):
+    """A run of consonant units between two vowels -> (coda, onset) ipa
+    lists for the preceding/following syllable. A lone stop+liquid pair at
+    the end of the run (patrem -> pa.trem) joins the onset whole; anything
+    else splits one consonant to the coda, the rest to the onset."""
+    if not run:
+        return [], []
+    if len(run) == 1:
+        return [], [run[0][1]]
+    if run[-2][2] and run[-1][3]:
+        return [u[1] for u in run[:-2]], [u[1] for u in run[-2:]]
+    return [u[1] for u in run[:-1]], [run[-1][1]]
+
+
+def latin_to_ipa(word):
+    """Macron/breve-marked Latin headword -> syllabified, stress-marked IPA
+    string per Vox Latina, or None if it can't be confidently transcribed.
+    Does not itself gate on "has any length marks" - callers should check
+    that before trusting the stress placement (see build())."""
+    letters = _ipa_letters((word or '').replace('-', '').replace(' ', ''))
+    if not letters:
+        return None
+    phon = _ipa_phonemes(letters)
+    if not phon:
+        return None
+
+    nuclei_idx = [j for j, u in enumerate(phon) if u[0] == 'V']
+    if not nuclei_idx:
+        return None
+
+    onsets = [[] for _ in nuclei_idx]
+    codas = [[] for _ in nuclei_idx]
+    onsets[0] = [u[1] for u in phon[:nuclei_idx[0]]]
+    for k in range(len(nuclei_idx) - 1):
+        run = phon[nuclei_idx[k] + 1:nuclei_idx[k + 1]]
+        coda, onset = _ipa_split_run(run)
+        codas[k] = coda
+        onsets[k + 1] = onset
+    codas[-1] = [u[1] for u in phon[nuclei_idx[-1] + 1:]]
+
+    syllables = []
+    for k, idx in enumerate(nuclei_idx):
+        _, ipa, is_long = phon[idx]
+        syllables.append({'onset': onsets[k], 'nucleus': ipa,
+                          'long': is_long, 'coda': codas[k]})
+
+    n_syll = len(syllables)
+    if n_syll <= 2:
+        stress = 0
+    else:
+        penult = syllables[-2]
+        heavy = penult['long'] or len(penult['coda']) > 0
+        stress = n_syll - 2 if heavy else n_syll - 3
+
+    parts = []
+    for k, s in enumerate(syllables):
+        seg = ''.join(s['onset']) + s['nucleus'] + ''.join(s['coda'])
+        parts.append(('ˈ' if k == stress and n_syll > 1 else '') + seg)
+    return '.'.join(parts)
+
+
+# ---------------------------------------------------------------------------
 # Lewis & Short entry rendering
 # ---------------------------------------------------------------------------
 
@@ -132,7 +309,7 @@ def render_segments(segments, skip_senses=True):
     frags = []
     for kind, val in segments:
         if kind == 'text':
-            frags.append(html.escape(clean_text(val)))
+            frags.append(html.escape(clean_text(val), quote=False))
             continue
         child = val
         tag = child.tag.split('}')[-1]
@@ -140,40 +317,40 @@ def render_segments(segments, skip_senses=True):
             continue
         text = clean_text(''.join(child.itertext()))
         if tag in ('orth',):
-            frags.append(f'<b class="la-word">{html.escape(text)}</b>')
+            frags.append(f'<b class="la-word">{html.escape(text, quote=False)}</b>')
         elif tag in ('itype',):
-            frags.append(f'<span class="itype">{html.escape(text)}</span>')
+            frags.append(f'<span class="itype">{html.escape(text, quote=False)}</span>')
         elif tag in ('pos', 'gen'):
-            frags.append(f'<span class="pos">{html.escape(text)}</span>')
+            frags.append(f'<span class="pos">{html.escape(text, quote=False)}</span>')
         elif tag in ('foreign',):
-            frags.append(f'<span class="foreign">{html.escape(text)}</span>')
+            frags.append(f'<span class="foreign">{html.escape(text, quote=False)}</span>')
         elif tag in ('hi', 'title', 'author'):
-            frags.append(f'<i>{html.escape(text)}</i>')
+            frags.append(f'<i>{html.escape(text, quote=False)}</i>')
         elif tag == 'cit':
             # A cit typically wraps <quote> (the Latin example), an optional
             # <trans>/<tr> (its English gloss), and <bibl> (the reference) -
             # recurse so each renders distinctly instead of one flattened blob.
             frags.append(render_segments(node_segments(child), skip_senses=skip_senses))
         elif tag == 'quote':
-            frags.append(f'<i class="cit-quote">{html.escape(text)}</i>')
+            frags.append(f'<i class="cit-quote">{html.escape(text, quote=False)}</i>')
         elif tag == 'trans':
             inner = render_segments(node_segments(child), skip_senses=skip_senses)
             frags.append(f'<span class="cit-trans">‘{inner}’</span>')
         elif tag == 'tr':
-            frags.append(html.escape(text))
+            frags.append(html.escape(text, quote=False))
         elif tag == 'bibl':
-            frags.append(f'<span class="cit-bibl">{html.escape(text)}</span>')
+            frags.append(f'<span class="cit-bibl">{html.escape(text, quote=False)}</span>')
         elif tag == 'usg':
             if child.attrib.get('type') == 'dom':
-                frags.append(f'<span class="usg-domain">{html.escape(text)}</span>')
+                frags.append(f'<span class="usg-domain">{html.escape(text, quote=False)}</span>')
             else:
-                frags.append(f'<span class="usg-style">{html.escape(text)}</span>')
+                frags.append(f'<span class="usg-style">{html.escape(text, quote=False)}</span>')
         elif tag in ('case', 'mood', 'number'):
-            frags.append(f'<span class="gram-abbr">{html.escape(text)}</span>')
+            frags.append(f'<span class="gram-abbr">{html.escape(text, quote=False)}</span>')
         elif tag == 'lbl':
-            frags.append(f'<span class="gram-lbl">{html.escape(text)}</span>')
+            frags.append(f'<span class="gram-lbl">{html.escape(text, quote=False)}</span>')
         elif tag == 'etym':
-            frags.append(f'<span class="etym">[{html.escape(text)}]</span>')
+            frags.append(f'<span class="etym">[{html.escape(text, quote=False)}]</span>')
         elif tag == 'xr':
             # Wraps a <lbl> ("v.", already styled) and a <ref> - almost
             # always a symbolic print-navigation marker (supra/infra/the
@@ -181,11 +358,11 @@ def render_segments(segments, skip_senses=True):
             # attempted; just recurse so the lbl+ref render together, styled.
             frags.append(render_segments(node_segments(child), skip_senses=skip_senses))
         elif tag == 'ref':
-            frags.append(f'<span class="xr-ref">{html.escape(text)}</span>')
+            frags.append(f'<span class="xr-ref">{html.escape(text, quote=False)}</span>')
         elif tag in ('pb', 'cb'):
             pass
         else:
-            frags.append(html.escape(text))
+            frags.append(html.escape(text, quote=False))
     out = ' '.join(f for f in frags if f)
     return re.sub(r'\s+([,;:.])', r'\1', re.sub(r'\s+', ' ', out)).strip()
 
@@ -275,8 +452,8 @@ def render_entry_body(entry_el):
         parts.append(f'<div class="entry-preamble">{preamble}</div>')
     if len(overview) > 1:
         items = ''.join(
-            f'<span class="overview-item"><span class="sense-num">{html.escape(n)}</span> '
-            f'{html.escape(b)}</span>' for n, b in overview)
+            f'<span class="overview-item"><span class="sense-num">{html.escape(n, quote=False)}</span> '
+            f'{html.escape(b, quote=False)}</span>' for n, b in overview)
         parts.append(f'<div class="sense-overview">{items}</div>')
 
     # Lewis & Short frequently mid-sense introduces a derived headword (e.g.
@@ -337,7 +514,7 @@ def render_entry_body(entry_el):
     for i, rec in enumerate(records):
         depth, n, major, body = rec['depth'], rec['n'], rec['major'], rec['body']
         major_class = ' sense-major' if major else ''
-        num_html = f'<span class="sense-num">{html.escape(n)}</span> ' if n else ''
+        num_html = f'<span class="sense-num">{html.escape(n, quote=False)}</span> ' if n else ''
 
         next_restarts = (i + 1 < len(records)) and records[i + 1]['restart']
         split = split_at_hence(rec['s']) if next_restarts else None
@@ -370,14 +547,14 @@ def styled_synonym_body(body, max_chars=2500):
     if len(body) > max_chars:
         cut = body.rfind('.', 0, max_chars)
         body = body[:cut + 1] if cut > 200 else body[:max_chars] + '…'
-    return html.escape(body)
+    return html.escape(body, quote=False)
 
 
 def render_synonyms(articles, spinelli_syns=None, doederlein_articles=None):
     parts = ['<div class="syn-section">',
              '<p class="section-label">Synonyms &amp; Near-Synonyms</p>']
     if spinelli_syns:
-        items = ', '.join(html.escape(s) for s in spinelli_syns)
+        items = ', '.join(html.escape(s, quote=False) for s in spinelli_syns)
         parts.append('<div class="syn-article">')
         parts.append(f'<p class="syn-body syn-spinelli">{items} '
                      f'<span class="syn-ref">(Spinelli–Fenzi 2019)</span></p>')
@@ -390,14 +567,14 @@ def render_synonyms(articles, spinelli_syns=None, doederlein_articles=None):
         # own parse-order index, which isn't stable across re-downloads of
         # the source (Gutenberg silently revises its transcriptions), so
         # presenting it as if it were a citable locator would be misleading.
-        parts.append(f'<p class="syn-headwords">{html.escape(words)} '
+        parts.append(f'<p class="syn-headwords">{html.escape(words, quote=False)} '
                      f'<span class="syn-ref">(Döderlein)</span></p>')
         parts.append(f'<p class="syn-body">{styled_synonym_body(body)}</p>')
         parts.append('</div>')
     for num, headwords, body in articles:
         words = ', '.join(headwords.split(','))
         parts.append('<div class="syn-article">')
-        parts.append(f'<p class="syn-headwords">{html.escape(words)} '
+        parts.append(f'<p class="syn-headwords">{html.escape(words, quote=False)} '
                      f'<span class="syn-ref">(Ramshorn §{num})</span></p>')
         parts.append(f'<p class="syn-body">{styled_synonym_body(body)}</p>')
         parts.append('</div>')
@@ -471,6 +648,19 @@ SUPPLETIVE_COMP_STEMS = {
     'bonus': 'melior', 'malus': 'pei', 'magnus': 'mai',
     'parvus': 'min', 'multus': 'plus',
 }
+
+# Semi-deponent verbs: active in the present system, but passive-form only
+# in the perfect system (no separate perfect active exists to cite), e.g.
+# audeo, audere, ausus sum. Like the suppletive-superlative gap above, L&S's
+# own <pos> tag doesn't reliably flag this small closed class as anything
+# but a plain "v. n." or "v. a. and n." - it's a category the grammatical
+# tradition recognizes but L&S's structured tagging doesn't consistently
+# mark, so it's handled the same way: a hardcoded lookup by key rather than
+# inferred from a tag that isn't reliably there. revertor is deliberately
+# excluded - usage swings between deponent and active across periods/texts
+# rather than settling into the fixed semi-deponent pattern the other five
+# have.
+SEMI_DEPONENT_LEMMAS = {'audeo', 'gaudeo', 'soleo', 'fido', 'confido', 'diffido'}
 
 
 def _is_suppletive_superl(lemma_hint, form):
@@ -612,14 +802,28 @@ def classify_and_grid(rows, lemma_hint=None):
             participles, subj_parts, imperatives, supines, gerundives, n_nominal, n_verbal)
 
 
-def render_principal_parts(verb_parts, infinitives, participles, supines, is_deponent):
-    """The classic 4-part (3-part for deponents) citation form Latin is
-    taught with: amo, amare, amavi, amatus - or for deponents,
-    hortor, hortari, hortatus sum. Built from whichever of these forms the
-    Morpheus analyses actually attest; gracefully omits any that are
-    missing rather than guessing.
+def render_principal_parts(verb_parts, infinitives, participles, supines, is_deponent,
+                           is_semi_deponent=False):
+    """The classic 4-part (3-part for deponents/semi-deponents) citation
+    form Latin is taught with: amo, amare, amavi, amatus - for deponents,
+    hortor, hortari, hortatus sum - or for semi-deponents (audeo, gaudeo,
+    soleo, fido and its compounds: active in the present system, but
+    passive-form only in the perfect system, with no separate perfect
+    active form to cite), audeo, audere, ausus sum. Built from whichever
+    of these forms the Morpheus analyses actually attest; gracefully omits
+    any that are missing rather than guessing.
     """
-    if is_deponent:
+    if is_semi_deponent:
+        # Present system is active like an ordinary verb; the perfect
+        # system has no active form at all, so the 3rd part is the (always
+        # passive-form) perfect participle + sum, same shape as a full
+        # deponent's 3rd part, just reached from the active side.
+        pres = join_forms(verb_parts.get(('pres', 'act'), []))
+        inf = join_forms(infinitives.get(('pres', 'act'), []))
+        perf_participle = join_forms(participles.get(('perf', 'pass'), []))
+        perf = f'{perf_participle} sum' if perf_participle else ''
+        forms = [pres, inf, perf]
+    elif is_deponent:
         pres = join_forms(verb_parts.get(('pres', 'pass'), []))
         inf = join_forms(infinitives.get(('pres', 'pass'), []))
         perf_participle = join_forms(participles.get(('perf', 'pass'), []))
@@ -639,11 +843,16 @@ def render_principal_parts(verb_parts, infinitives, participles, supines, is_dep
     if sum(1 for f in forms if f) < 2:
         return ''  # too little attested to be a useful citation
 
-    forms_html = ', '.join(f'<b class="la-word">{html.escape(f)}</b>' if f
+    forms_html = ', '.join(f'<b class="la-word">{html.escape(f, quote=False)}</b>' if f
                            else '<span class="pp-missing">—</span>' for f in forms)
-    label = 'Principal Parts (deponent)' if is_deponent else 'Principal Parts'
+    if is_semi_deponent:
+        label = 'Principal Parts (semi-deponent)'
+    elif is_deponent:
+        label = 'Principal Parts (deponent)'
+    else:
+        label = 'Principal Parts'
     return (f'<div class="principal-parts">'
-            f'<span class="pp-label">{html.escape(label)}</span> '
+            f'<span class="pp-label">{html.escape(label, quote=False)}</span> '
             f'<span class="pp-forms">{forms_html}</span></div>')
 
 
@@ -656,7 +865,7 @@ def render_subjunctive(subj_parts):
         pas = join_forms(subj_parts.get((tense, 'pass'), []))
         if act or pas:
             rows.append(f'<tr><td class="case-label">{TENSE_LABELS[tense]}</td>'
-                        f'<td>{html.escape(act) or "—"}</td><td>{html.escape(pas) or "—"}</td></tr>')
+                        f'<td>{html.escape(act, quote=False) or "—"}</td><td>{html.escape(pas, quote=False) or "—"}</td></tr>')
     if not rows:
         return ''
     return ('<div class="morph-section">'
@@ -674,7 +883,7 @@ def render_imperative(imperatives):
         pl = join_forms(imperatives.get((tense, '2nd', 'pl'), set()))
         if sg or pl:
             rows.append(f'<tr><td class="case-label">{label}</td>'
-                        f'<td>{html.escape(sg) or "—"}</td><td>{html.escape(pl) or "—"}</td></tr>')
+                        f'<td>{html.escape(sg, quote=False) or "—"}</td><td>{html.escape(pl, quote=False) or "—"}</td></tr>')
     if not rows:
         return ''
     return ('<div class="morph-section">'
@@ -720,7 +929,7 @@ def write_declension_table(grid2d):
         if sg == '—' and pl == '—':
             continue
         rows.append(f'<tr><td class="case-label">{CASE_LABELS[c]}</td>'
-                    f'<td>{html.escape(sg)}</td><td>{html.escape(pl)}</td></tr>')
+                    f'<td>{html.escape(sg, quote=False)}</td><td>{html.escape(pl, quote=False)}</td></tr>')
     if not rows:
         return ''
     return ('<table class="morphology-table">'
@@ -780,11 +989,13 @@ def render_morphology(classified, is_deponent=False, lemma_hint=None):
     noun_grid = grid3d['pos']
     comp_stem = SUPPLETIVE_COMP_STEMS.get(lemma_hint)
     superl_stem = SUPPLETIVE_SUPERL_STEMS.get(lemma_hint)
+    is_semi_deponent = lemma_hint in SEMI_DEPONENT_LEMMAS
     parts = []
 
     if n_verbal > n_nominal and verb_parts:
         pp_html = render_principal_parts(verb_parts, infinitives, participles,
-                                         supines, is_deponent)
+                                         supines, is_deponent,
+                                         is_semi_deponent=is_semi_deponent)
         parts.append('<div class="morph-section">')
         if pp_html:
             parts.append(pp_html)
@@ -797,7 +1008,7 @@ def render_morphology(classified, is_deponent=False, lemma_hint=None):
             if act == '—' and pas == '—':
                 continue
             parts.append(f'<tr><td class="case-label">{TENSE_LABELS[tense]}</td>'
-                         f'<td>{html.escape(act)}</td><td>{html.escape(pas)}</td></tr>')
+                         f'<td>{html.escape(act, quote=False)}</td><td>{html.escape(pas, quote=False)}</td></tr>')
         inf_rows = []
         for tense in TENSES:
             act = join_forms(infinitives.get((tense, 'act'), []))
@@ -805,14 +1016,14 @@ def render_morphology(classified, is_deponent=False, lemma_hint=None):
             if act or pas:
                 inf_rows.append(
                     f'<tr><td class="case-label">{TENSE_LABELS[tense]} Infinitive</td>'
-                    f'<td>{html.escape(act) or "—"}</td><td>{html.escape(pas) or "—"}</td></tr>')
+                    f'<td>{html.escape(act, quote=False) or "—"}</td><td>{html.escape(pas, quote=False) or "—"}</td></tr>')
         if inf_rows:
             parts.append('<tr class="morph-secondary-header"><td colspan="3">Infinitives</td></tr>')
             parts.extend(inf_rows)
         if gerundives:
             parts.append('<tr class="morph-secondary-header"><td colspan="3">Gerundive</td></tr>')
             parts.append(f'<tr><td class="case-label">masc. nom. sg.</td>'
-                        f'<td colspan="2">{html.escape(join_forms(gerundives))}</td></tr>')
+                        f'<td colspan="2">{html.escape(join_forms(gerundives), quote=False)}</td></tr>')
         parts.append('</table></div>')
         parts.append(render_subjunctive(subj_parts))
         parts.append(render_imperative(imperatives))
@@ -825,11 +1036,11 @@ def render_morphology(classified, is_deponent=False, lemma_hint=None):
             superl_form = pick_canonical_form(grid3d['superl'], prefer_stem=superl_stem)
             bits = []
             if pos_form:
-                bits.append(f'Positive: <b class="la-word">{html.escape(pos_form)}</b>')
+                bits.append(f'Positive: <b class="la-word">{html.escape(pos_form, quote=False)}</b>')
             if comp_form:
-                bits.append(f'Comparative: <b class="la-word">{html.escape(comp_form)}</b>')
+                bits.append(f'Comparative: <b class="la-word">{html.escape(comp_form, quote=False)}</b>')
             if superl_form:
-                bits.append(f'Superlative: <b class="la-word">{html.escape(superl_form)}</b>')
+                bits.append(f'Superlative: <b class="la-word">{html.escape(superl_form, quote=False)}</b>')
             if bits:
                 parts.append(f'<p class="entry-degree-forms">{" · ".join(bits)}</p>')
         parts.append('<p class="section-label">Morphology — Declension</p>')
@@ -871,9 +1082,9 @@ def write_degree_entries(out, deg_counter, lemma_display, classified, lemma_hint
             kw = sanitize_key(kw)
             if kw:
                 out.write(f'        <d:index d:value="{html.escape(kw)}"/>\n')
-        out.write(f'        <h1 class="entry-lemma">{html.escape(canonical)}</h1>\n')
+        out.write(f'        <h1 class="entry-lemma">{html.escape(canonical, quote=False)}</h1>\n')
         out.write(f'        <p class="ag-level-label">{DEGREE_LABELS[degree]} degree of '
-                  f'<b class="la-word">{html.escape(lemma_display)}</b>.</p>\n')
+                  f'<b class="la-word">{html.escape(lemma_display, quote=False)}</b>.</p>\n')
         out.write('        <div class="morph-section">\n')
         out.write(f'        <p class="section-label">Morphology — Declension ({DEGREE_LABELS[degree]})</p>\n')
         out.write(write_declension_section(degree_grid) + '\n')
@@ -933,6 +1144,26 @@ def build():
             doed_by_lemma[lemma.lower()].add(order_idx)
     print(f'  Doederlein index resolved for {len(doed_by_lemma)} lookup keys')
 
+    # Morpheus disambiguates homonyms by suffixing its lemma with a number
+    # (equus -> equus1) even when L&S's own key for that word carries no
+    # number at all, since L&S only numbers a key when *it* needs to split
+    # senses. A bare "lemma = key OR lemma = base_key" join then silently
+    # finds nothing for any such word - equus among them. Rescue only the
+    # unambiguous case, where exactly one numbered variant exists for a
+    # given stem: if Morpheus itself split the stem into two or more
+    # competing lemmata (Achates1 vs Achates2, genuinely different words),
+    # guessing which one an unnumbered L&S key means would risk attaching
+    # the wrong word's morphology, so those are left unmatched as before.
+    numbered_variants = defaultdict(list)
+    mcur.execute("SELECT DISTINCT lemma FROM forms WHERE lemma GLOB '*[0-9]'")
+    for (lemma,) in mcur.fetchall():
+        stem = re.sub(r'\d+$', '', lemma)
+        numbered_variants[stem].append(lemma)
+    numbered_rescue = {stem: variants[0] for stem, variants in numbered_variants.items()
+                       if len(variants) == 1}
+    print(f'  {len(numbered_rescue)} lemmata rescuable via their sole numbered '
+          f'Morpheus variant (e.g. equus -> equus1)')
+
     n = n_syn = n_morph = n_degree = n_parse_fail = 0
     deg_counter = 0
     with open(OUTPUT_XML_PATH, 'w', encoding='utf-8') as out:
@@ -949,6 +1180,10 @@ def build():
             mcur.execute('SELECT form, analyses FROM forms WHERE lemma = ? OR lemma = ?',
                          (key, base_key))
             morph_rows = mcur.fetchall()
+            if not morph_rows and base_key in numbered_rescue:
+                mcur.execute('SELECT form, analyses FROM forms WHERE lemma = ?',
+                             (numbered_rescue[base_key],))
+                morph_rows = mcur.fetchall()
             classified = classify_and_grid(morph_rows, lemma_hint=base_key.lower()) if morph_rows else None
             degree_raw_forms = raw_degree_forms(morph_rows, lemma_hint=base_key.lower()) if morph_rows else set()
 
@@ -982,7 +1217,7 @@ def build():
             except ET.ParseError:
                 n_parse_fail += 1
                 text = clean_text(re.sub(r'<[^>]+>', ' ', fragment))
-                body_html = f'<div class="sense">{html.escape(text)}</div>'
+                body_html = f'<div class="sense">{html.escape(text, quote=False)}</div>'
 
             # ---- synonyms
             syn_articles = []
@@ -1016,9 +1251,17 @@ def build():
                 kw = sanitize_key(kw)
                 if kw:
                     out.write(f'        <d:index d:value="{html.escape(kw)}"/>\n')
-            out.write(f'        <h1 class="entry-lemma">{html.escape(lemma_display)}</h1>\n')
+            out.write(f'        <h1 class="entry-lemma">{html.escape(lemma_display, quote=False)}</h1>\n')
+            # Length marks are the only signal that makes stress placement
+            # trustworthy - an unmarked lemma_display is short-by-default
+            # per L&S's own convention but too often just "not marked
+            # here", so skip rather than render a guess.
+            if any(ord(c) in (0x304, 0x306) for c in unicodedata.normalize('NFD', lemma_display)):
+                ipa = latin_to_ipa(lemma_display)
+                if ipa:
+                    out.write(f'        <p class="ipa-pronunciation">[{html.escape(ipa, quote=False)}]</p>\n')
             if domain_badges:
-                badges = ''.join(f'<span class="domain-badge">{html.escape(b)}</span>'
+                badges = ''.join(f'<span class="domain-badge">{html.escape(b, quote=False)}</span>'
                                  for b in domain_badges)
                 out.write(f'        <div class="domain-badges">{badges}</div>\n')
             out.write(f'        <div class="definition">{body_html}</div>\n')
@@ -1076,9 +1319,9 @@ def write_grammar_entries(out, start_n):
             kw = sanitize_key(kw)
             if kw:
                 out.write(f'        <d:index d:value="{html.escape(kw)}"/>\n')
-        out.write(f'        <h1 class="entry-lemma ag-heading">{html.escape(title)}</h1>\n')
+        out.write(f'        <h1 class="entry-lemma ag-heading">{html.escape(title, quote=False)}</h1>\n')
         out.write(f'        <p class="ag-level-label">Allen &amp; Greenough’s New Latin '
-                  f'Grammar — {html.escape(level)}</p>\n')
+                  f'Grammar — {html.escape(level, quote=False)}</p>\n')
         out.write(f'        <div class="definition ag-section">{body_html}</div>\n')
         out.write('    </d:entry>\n\n')
 
@@ -1096,8 +1339,8 @@ def write_grammar_entries(out, start_n):
         # would otherwise strip the leading "§" down to a bare, too-generic "419"
         for kw in (f'AG {sect_num}', f'A&G {sect_num}', f'§{sect_num}'):
             out.write(f'        <d:index d:value="{html.escape(kw)}"/>\n')
-        out.write(f'        <h1 class="entry-lemma ag-heading">{html.escape(title)}</h1>\n')
-        out.write(f'        <p class="ag-level-label">Allen &amp; Greenough §{html.escape(sect_num)}</p>\n')
+        out.write(f'        <h1 class="entry-lemma ag-heading">{html.escape(title, quote=False)}</h1>\n')
+        out.write(f'        <p class="ag-level-label">Allen &amp; Greenough §{html.escape(sect_num, quote=False)}</p>\n')
         out.write(f'        <div class="definition ag-section">{body_html}</div>\n')
         out.write('    </d:entry>\n\n')
 
@@ -1129,11 +1372,11 @@ def write_termination_entries(out, start_n):
         out.write(f'    <d:entry id="term_{n}" d:title="{html.escape(title)}">\n')
         for kw in (title, f'Ramshorn {roman}', f'Terminations {roman}'):
             out.write(f'        <d:index d:value="{html.escape(kw)}"/>\n')
-        out.write(f'        <h1 class="entry-lemma ag-heading">{html.escape(title)}</h1>\n')
+        out.write(f'        <h1 class="entry-lemma ag-heading">{html.escape(title, quote=False)}</h1>\n')
         out.write(f'        <p class="ag-level-label">Ramshorn, Dictionary of Latin '
-                  f'Synonymes (1841) — {html.escape(category)}</p>\n')
+                  f'Synonymes (1841) — {html.escape(category, quote=False)}</p>\n')
         out.write(f'        <div class="definition ag-section"><p class="ag-p">'
-                  f'{html.escape(body)}</p></div>\n')
+                  f'{html.escape(body, quote=False)}</p></div>\n')
         out.write('    </d:entry>\n\n')
 
     conn.close()

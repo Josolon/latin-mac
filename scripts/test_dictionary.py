@@ -78,6 +78,35 @@ def main():
         check('labeled Principal Parts (deponent)', 'Principal Parts (deponent)' in sequor)
         check('citation form is sequor, sequi, secutus sum', 'secutus sum' in sequor)
 
+    print('== equus (noun morphology via numbered-lemma rescue) ==')
+    equus = entry_by_title(content, 'equus')
+    check('equus entry exists', equus is not None)
+    check("equus has a Morphology section (Morpheus's lemma is 'equus1', "
+          "not 'equus' - regression test for the numbered-lemma join)",
+          equus and 'class="morph-section"' in equus)
+
+    print('== semi-deponent verbs (audeo, gaudeo, soleo) ==')
+    audeo = entry_by_title(content, 'audeo')
+    check('audeo entry exists', audeo is not None)
+    if audeo:
+        check('labeled Principal Parts (semi-deponent)',
+              'Principal Parts (semi-deponent)' in audeo)
+        check('citation form is audeo, audere, ausus sum', 'ausus sum' in audeo)
+    gaudeo = entry_by_title(content, 'gaudeo')
+    check('gaudeo cites gavisus sum (irregular perfect participle)',
+          gaudeo and 'gavisus sum' in gaudeo)
+    soleo = entry_by_title(content, 'soleo')
+    check('soleo cites solitus sum', soleo and 'solitus sum' in soleo)
+
+    print('== Reconstructed pronunciation (Vox Latina) ==')
+    check('equus shows IPA [ˈɛ.kʷʊs] (qu -> kʷ, disyllabic -> stress first syllable)',
+          equus and 'ˈɛ.kʷʊs' in equus)
+    check('bonus shows IPA [ˈbɔ.nʊs] (breve-marked o -> short ɔ)',
+          bonus_check and 'ˈbɔ.nʊs' in bonus_check)
+    dominus = entry_by_title(content, 'dominus')
+    check('dominus shows IPA with antepenult stress (light penult -> ˈdɔ.mɪ.nʊs)',
+          dominus and 'ˈdɔ.mɪ.nʊs' in dominus)
+
     print('== abactor (word-root etymology) ==')
     abactor = entry_by_title(content, 'abactor')
     check('abactor entry exists', abactor is not None)
